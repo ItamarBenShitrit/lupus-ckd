@@ -1,0 +1,3693 @@
+---
+title: "LUPUS CKD Step 2"
+author: "Iftach, Itamar, Oshrat"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    toc_collapsed: yes
+    toc_depth: 3
+    theme: simplex
+    code_download: yes
+---
+#Packeges
+```{r, message = FALSE,echo=FALSE,warning = FALSE}
+knitr::opts_chunk$set(dpi=300,fig.width=7)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+library("readr")
+library("gtsummary")
+library(survey) # Add this line to load the required package
+library("tidyverse")
+library("dplyr")
+library("ggplot2")
+library("survival")
+library("survminer")
+library("ggfortify")
+library("broom")
+library("ggsurvfit")
+library("gt")
+library("forcats")
+library("gridExtra")
+library("smd")
+library("RColorBrewer")
+library("lubridate")
+
+library("flextable")
+```
+
+#P-v def
+```{r}
+
+custom_pvalue_fun <- function(x) {
+  formatted_p <- vapply(x, function(p) {
+    if (is.na(p)) {
+      return(NA_character_)
+    } else if (p < 0.001) {
+      return("<0.001")
+    } else if (p <= 0.05) {
+      return(substr(sprintf("%.3f", p), 1, 5)) # Truncate to 3 decimals
+    } else {
+      return(substr(sprintf("%.3f", p), 1, 4)) # Truncate to 2 decimals
+    }
+  }, character(1))
+  
+  return(formatted_p)
+}
+
+```
+
+
+#CHUNK 1: Setup and Helper Functions 
+
+```{r}
+## ============================================================================
+##  CHUNK 1: Setup and Helper Functions (FIXED)
+## ============================================================================
+
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(purrr)
+library(tidyr)
+library(readr)
+
+## -----------------------------
+##  Helper Functions
+## -----------------------------
+
+# Fix column names: standardize separators AND remove special characters
+fix_cols <- function(dt) {
+  nm <- names(dt)
+  nm <- gsub("-", "_", nm)
+  nm <- gsub(" ", "_", nm)
+  nm <- gsub("%", "pct", nm)
+  nm <- gsub("\\(", "", nm)
+  nm <- gsub("\\)", "", nm)
+  nm <- gsub("\\[", "", nm)
+  nm <- gsub("\\]", "", nm)
+  nm <- gsub("\\$", "", nm)
+  nm <- gsub("\\#", "", nm)
+  nm <- gsub("&", "and", nm)
+  nm <- gsub("\\+", "plus", nm)
+  nm <- gsub("\\*", "star", nm)
+  nm <- gsub("/", "_", nm)
+  nm <- gsub("\\\\", "_", nm)
+  nm <- gsub("\\?", "", nm)
+  nm <- gsub("!", "", nm)
+  nm <- gsub("@", "at", nm)
+  nm <- gsub("\\^", "", nm)
+  nm <- gsub("~", "", nm)
+  nm <- gsub("`", "", nm)
+  nm <- gsub("'", "", nm)
+  nm <- gsub('"', "", nm)
+  nm <- gsub(",", "", nm)
+  nm <- gsub(";", "", nm)
+  nm <- gsub(":", "", nm)
+  nm <- gsub("\\|", "_", nm)
+  nm <- gsub("<", "lt", nm)
+  nm <- gsub(">", "gt", nm)
+  nm <- gsub("=", "eq", nm)
+  nm <- gsub("__+", "_", nm, perl = TRUE)
+  nm <- gsub("^_", "", nm)
+  nm <- gsub("_$", "", nm)
+  names(dt) <- nm
+  dt
+}
+
+# FIXED: Normalize ID - remove X prefix that R adds, DON'T strip hex format
+norm_id <- function(x) {
+  x <- as.character(x)
+  x <- trimws(x)
+  # Remove the X prefix that R adds automatically when reading IDs
+  x <- sub("^X", "", x)
+  # DON'T remove leading zeros - this corrupts hex IDs like 0x...
+  x[x == ""] <- NA
+  x
+}
+
+# Safe reducers
+min_na <- function(x) if (all(is.na(x))) NA_real_ else suppressWarnings(min(x, na.rm = TRUE))
+pmin2  <- function(a,b) ifelse(is.na(a) & is.na(b), NA_real_, pmin(a,b, na.rm = TRUE))
+
+cat("✓ Chunk 1 complete: Libraries and FIXED helpers loaded\n")
+```
+
+
+
+
+#CHUNK 2: Load Data and FIX Column Names 
+```{r}
+## ============================================================================
+##  CHUNK 2: Load Data and Standardize Column Names (CORRECTED)
+## ============================================================================
+cat("\n=== CHUNK 2: Loading and standardizing data ===\n\n")
+
+lupus_original_file=read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/all_data.csv",  locale = locale(encoding = "UTF-8"))
+
+lupus_original_file <- fix_cols(lupus_original_file)
+
+GFR_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48415][GFR][v-ruthsm_nat][qe_35410][20260115_185758857_4439].csv",  locale = locale(encoding = "UTF-8"))
+
+ALBUMIN_CR_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48415][ALBUMIN_CREATININE_RATIO][v-ruthsm_nat][qe_35410][20260115_185758869_2470].csv",  locale = locale(encoding = "UTF-8"))
+
+PROTEINURIA_24HR_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48415][PROTEINURIA_24hr][v-ruthsm_nat][qe_35410][20260115_185758848_9775].csv",  locale = locale(encoding = "UTF-8"))
+
+
+PROTEINURIA_ALBUMIN_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48415][PROTEINURIA_albumin][v-ruthsm_nat][qe_35410][20260115_185758863_4234].csv",  locale = locale(encoding = "UTF-8"))
+
+
+PROTEINE_CREATININE_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48415][Proteinuria_proteincreatinine][v-ruthsm_nat][qe_35410][20260115_185758853_373].csv",  locale = locale(encoding = "UTF-8"))
+
+
+PROTERIN_URINE_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48415][PROTEINURIA_urine_sample][v-ruthsm_nat][qe_35410][20260115_185758873_7760].csv",  locale = locale(encoding = "UTF-8"))
+
+Baseline <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48414][CUSTOMIZED][v-ruthsm_nat][qe_35411][20260115_184823737_1752].csv",  locale = locale(encoding = "UTF-8"))
+
+
+
+HYDROXY_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48414][Hydroxychloroquine_first_99][v-ruthsm_nat][qe_35411][20260115_184823742_1494].csv",  locale = locale(encoding = "UTF-8"))
+PREDNISONE_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48414][Prednisone_first_99][v-ruthsm_nat][qe_35411][20260115_184823749_8007].csv",  locale = locale(encoding = "UTF-8"))
+
+HYDROXY_FIRST_99 <- fix_cols(HYDROXY_FIRST_99)
+PREDNISONE_FIRST_99 <- fix_cols(PREDNISONE_FIRST_99)
+
+
+
+PROTERIN_URINE_FIRST_99 <- fix_cols(PROTERIN_URINE_FIRST_99)
+PROTEINE_CREATININE_FIRST_99 <- fix_cols(PROTEINE_CREATININE_FIRST_99)
+PROTEINURIA_ALBUMIN_FIRST_99 <- fix_cols(PROTEINURIA_ALBUMIN_FIRST_99)
+PROTEINURIA_24HR_FIRST_99 <- fix_cols(PROTEINURIA_24HR_FIRST_99)
+ALBUMIN_CR_FIRST_99 <- fix_cols(ALBUMIN_CR_FIRST_99)
+GFR_FIRST_99 <- fix_cols(GFR_FIRST_99)
+Baseline <- fix_cols(Baseline)
+
+
+colnames(PROTERIN_URINE_FIRST_99)
+colnames(PROTEINE_CREATININE_FIRST_99)
+colnames(PROTEINURIA_ALBUMIN_FIRST_99)
+colnames(PROTEINURIA_24HR_FIRST_99)
+colnames(ALBUMIN_CR_FIRST_99)
+colnames(GFR_FIRST_99)
+
+
+colnames(HYDROXY_FIRST_99)
+
+colnames(PREDNISONE_FIRST_99)
+
+
+
+```
+#excluding nephritis 
+```{r}
+## ============================================================================
+##  CHUNK 2: Load Data and Standardize Column Names (CORRECTED)
+## ============================================================================
+cat("\n=== CHUNK 2: Loading and standardizing data ===\n\n")
+
+
+lupus_file <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/matched_cohort_dates.csv",  locale = locale(encoding = "UTF-8"))
+
+
+lupus_file <- fix_cols(lupus_file)
+
+colnames(lupus_file)
+
+
+
+# ============================================================================
+# EXCLUDE LUPUS NEPHRITIS PATIENTS AND THEIR MATCHED CONTROLS FROM lupus_file
+# ============================================================================
+
+cat("\n=== Excluding Lupus Nephritis Patients and Matched Controls ===\n\n")
+
+library(dplyr)
+library(readr)
+
+# ----------------------------------------------------------------------------
+# STEP 1: Identify lupus nephritis patients from lupus_file
+# ----------------------------------------------------------------------------
+
+cat("Step 1: Identifying lupus nephritis patients from lupus_file...\n")
+
+# lupus_file should already be loaded in your environment
+# If not, uncomment the line below:
+
+lupus_nephritis_ids <- lupus_original_file %>%
+  filter(naparitis == 1) %>%
+  pull(patient_id)
+
+cat("Lupus nephritis patients found:", length(lupus_nephritis_ids), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 2: Check lupus_file dataframe
+# ----------------------------------------------------------------------------
+
+cat("Step 2: Checking lupus_file dataframe...\n")
+
+cat("Original lupus_file size:", nrow(lupus_file), "\n")
+cat("Columns in lupus_file:\n")
+print(colnames(lupus_file))
+cat("\n")
+
+# ----------------------------------------------------------------------------
+# STEP 3: Identify subclasses that contain nephritis patients
+# ----------------------------------------------------------------------------
+
+cat("Step 3: Identifying subclasses with nephritis patients...\n")
+
+nephritis_subclasses <- lupus_file %>%
+  filter(patient_id %in% lupus_nephritis_ids) %>%
+  distinct(subclass) %>%
+  pull(subclass)
+
+cat("Subclasses containing nephritis patients:", length(nephritis_subclasses), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4: Exclude these subclasses from lupus_file
+# ----------------------------------------------------------------------------
+
+cat("Step 4: Excluding nephritis subclasses...\n")
+
+# Count before exclusion
+before_exclusion <- lupus_file %>%
+  filter(subclass %in% nephritis_subclasses)
+
+cat("Patients to exclude:\n")
+cat("  Total:", nrow(before_exclusion), "\n")
+cat("  Lupus:", sum(before_exclusion$Lupus == 1), "\n")
+cat("  Control:", sum(before_exclusion$Lupus == 0), "\n\n")
+
+# Create filtered dataframe
+lupus_file_no_nephritis <- lupus_file %>%
+  filter(!(subclass %in% nephritis_subclasses))
+
+cat("After exclusion:\n")
+cat("  Total:", nrow(lupus_file_no_nephritis), "\n")
+cat("  Lupus:", sum(lupus_file_no_nephritis$Lupus == 1), "\n")
+cat("  Control:", sum(lupus_file_no_nephritis$Lupus == 0), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 5: Verify no nephritis patients remain
+# ----------------------------------------------------------------------------
+
+cat("Step 5: Verification...\n")
+
+remaining_nephritis <- lupus_file_no_nephritis %>%
+  filter(patient_id %in% lupus_nephritis_ids)
+
+cat("Nephritis patients remaining:", nrow(remaining_nephritis), "\n")
+
+if (nrow(remaining_nephritis) == 0) {
+  cat("✓ All nephritis patients successfully excluded\n\n")
+} else {
+  cat("WARNING: Some nephritis patients still remain!\n\n")
+}
+
+# ----------------------------------------------------------------------------
+# STEP 6: Replace lupus_file with filtered version
+# ----------------------------------------------------------------------------
+
+cat("Step 6: Updating lupus_file...\n")
+
+# Keep original as backup
+lupus_file_original <- lupus_file
+
+# Replace with filtered version
+lupus_file <- lupus_file_no_nephritis
+
+cat("✓ lupus_file updated (original saved as lupus_file_original)\n\n")
+
+# ----------------------------------------------------------------------------
+# SUMMARY
+# ----------------------------------------------------------------------------
+
+cat("=== SUMMARY ===\n\n")
+cat("Original lupus_file:", nrow(lupus_file_original), "patients\n")
+cat("Filtered lupus_file:", nrow(lupus_file), "patients\n")
+cat("Excluded:", nrow(lupus_file_original) - nrow(lupus_file), "patients\n")
+cat("  (", round((nrow(lupus_file_original) - nrow(lupus_file)) / nrow(lupus_file_original) * 100, 2), "% of original)\n\n")
+
+cat("✓ Exclusion complete!\n")
+
+# ============================================================================
+# FILTER Baseline DATAFRAME TO MATCH lupus_file (NO NEPHRITIS)
+# ============================================================================
+
+cat("\n=== Filtering Baseline dataframe ===\n\n")
+
+library(dplyr)
+
+# ----------------------------------------------------------------------------
+# STEP 1: Check Baseline before filtering
+# ----------------------------------------------------------------------------
+
+cat("Step 1: Baseline dataframe before filtering...\n")
+cat("Total rows in Baseline:", nrow(Baseline), "\n")
+cat("Unique patient_ids in Baseline:", n_distinct(Baseline$patient_id), "\n")
+cat("Unique mdcinternalpatientid in Baseline:", n_distinct(Baseline$mdcinternalpatientid), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 2: Get list of patient_ids to keep from lupus_file
+# ----------------------------------------------------------------------------
+
+cat("Step 2: Getting patient_ids from filtered lupus_file...\n")
+
+patient_ids_to_keep <- lupus_file %>%
+  distinct(patient_id) %>%
+  pull(patient_id)
+
+cat("Number of unique patient_ids in lupus_file:", length(patient_ids_to_keep), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 3: Filter Baseline to keep only patients in lupus_file
+# ----------------------------------------------------------------------------
+
+cat("Step 3: Filtering Baseline...\n")
+
+# Keep original as backup
+Baseline_original <- Baseline
+
+# Filter Baseline
+Baseline <- Baseline %>%
+  filter(patient_id %in% patient_ids_to_keep)
+
+cat("Baseline after filtering:\n")
+cat("  Total rows:", nrow(Baseline), "\n")
+cat("  Unique patient_ids:", n_distinct(Baseline$patient_id), "\n")
+cat("  Unique mdcinternalpatientid:", n_distinct(Baseline$mdcinternalpatientid), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4: Verify the filtering
+# ----------------------------------------------------------------------------
+
+cat("Step 4: Verification...\n")
+
+# Check if any nephritis patients remain in Baseline
+remaining_nephritis_baseline <- Baseline %>%
+  filter(patient_id %in% lupus_nephritis_ids)
+
+cat("Nephritis patients remaining in Baseline:", nrow(remaining_nephritis_baseline), "\n")
+
+if (nrow(remaining_nephritis_baseline) == 0) {
+  cat("✓ All nephritis patients successfully excluded from Baseline\n\n")
+} else {
+  cat("WARNING: Some nephritis patients still in Baseline!\n\n")
+}
+
+# Check that all lupus_file patient_ids exist in filtered Baseline
+lupus_file_ids <- unique(lupus_file$patient_id)
+baseline_ids <- unique(Baseline$patient_id)
+missing_ids <- setdiff(lupus_file_ids, baseline_ids)
+
+cat("Patient IDs in lupus_file but missing from Baseline:", length(missing_ids), "\n")
+
+if (length(missing_ids) > 0) {
+  cat("WARNING: Some lupus_file patients not found in Baseline!\n")
+  cat("First 10 missing IDs:\n")
+  print(head(missing_ids, 10))
+} else {
+  cat("✓ All lupus_file patients found in Baseline\n")
+}
+cat("\n")
+
+# ----------------------------------------------------------------------------
+# SUMMARY
+# ----------------------------------------------------------------------------
+
+cat("=== SUMMARY ===\n\n")
+cat("Original Baseline:", nrow(Baseline_original), "rows\n")
+cat("Filtered Baseline:", nrow(Baseline), "rows\n")
+cat("Rows excluded:", nrow(Baseline_original) - nrow(Baseline), "\n")
+cat("  (", round((nrow(Baseline_original) - nrow(Baseline)) / nrow(Baseline_original) * 100, 2), "% of original)\n\n")
+
+cat("✓ Baseline filtering complete!\n")
+cat("  (Original saved as Baseline_original)\n\n")
+```
+
+
+#CHUNK 3: Merge Baseline + Lupus file and Prepare GFR Data
+```{r}
+# ============================================================================
+# CHUNK 3: Merge Baseline + Lupus file and Prepare GFR Data (±1 year)
+# ============================================================================
+
+cat("\n=== CHUNK 3: Merging data and preparing baseline GFR (±1 year) ===\n\n")
+
+merged <- Baseline %>%
+  inner_join(
+    lupus_file %>% dplyr::select(patient_id, matched_lupus_start_date, Lupus),
+    by = "patient_id",
+    suffix = c("", "_lupus")
+  ) %>%
+  mutate(
+    # Index date = matched lupus start date for EVERYONE
+    index_date = as.Date(matched_lupus_start_date),
+    year = year(index_date),
+    
+    # Convert important dates
+    birth_date = as.Date(birth_date),
+    death_date = as.Date(death_deceased_date),
+    eskd_date = as.Date(eskd_start_date),
+    
+    # MACE - now using days from reference
+    mace_date = index_date + mace_without_death_start_date_days_from_reference,
+    
+    stroke_date = as.Date(stroke_start_date),
+    
+    # Calculate age at index
+    age_at_index = as.numeric(difftime(index_date, birth_date, units = "days")) / 365.25
+  ) %>%
+  filter(year >= 2015 & year <= 2023)
+
+cat("Total patients (2015-2023):", nrow(merged), "\n")
+cat("Lupus cases:", sum(merged$Lupus == 1), "\n")
+cat("Controls:", sum(merged$Lupus == 0), "\n\n")
+
+```
+
+```{r}
+# ============================================================================
+# EXPLORE ALL PROTEINURIA DATA SOURCES
+# ============================================================================
+
+cat("\n=== EXPLORING ALL PROTEINURIA DATA SOURCES ===\n\n")
+
+library(dplyr)
+
+# ============================================================================
+# 1. ALBUMIN_CR_FIRST_99 (Albumin-to-Creatinine Ratio)
+# ============================================================================
+
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n")
+cat("1. ALBUMIN_CR_FIRST_99 (ACR - Albumin-to-Creatinine Ratio)\n")
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n\n")
+
+cat("Total rows:", nrow(ALBUMIN_CR_FIRST_99), "\n")
+cat("Unique patients:", n_distinct(ALBUMIN_CR_FIRST_99$mdcinternalpatientid), "\n\n")
+
+cat("Column names:\n")
+print(colnames(ALBUMIN_CR_FIRST_99))
+cat("\n")
+
+cat("Summary of numeric result:\n")
+print(summary(ALBUMIN_CR_FIRST_99$albumin_creatinine_ratio_result_as_number))
+cat("\n")
+
+cat("Units distribution:\n")
+print(table(ALBUMIN_CR_FIRST_99$albumin_creatinine_ratio_result_unit, useNA = "ifany"))
+cat("\n")
+
+cat("Date range:\n")
+acr_dates <- as.Date(ALBUMIN_CR_FIRST_99$albumin_creatinine_ratio_result_date)
+cat("Min:", min(acr_dates, na.rm = TRUE), "\n")
+cat("Max:", max(acr_dates, na.rm = TRUE), "\n")
+cat("\n\n")
+
+# ============================================================================
+# 2. PROTEINE_CREATININE_FIRST_99 (Protein-to-Creatinine Ratio)
+# ============================================================================
+
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n")
+cat("2. PROTEINE_CREATININE_FIRST_99 (PCR - Protein-to-Creatinine Ratio)\n")
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n\n")
+
+cat("Total rows:", nrow(PROTEINE_CREATININE_FIRST_99), "\n")
+cat("Unique patients:", n_distinct(PROTEINE_CREATININE_FIRST_99$mdcinternalpatientid), "\n\n")
+
+cat("Column names:\n")
+print(colnames(PROTEINE_CREATININE_FIRST_99))
+cat("\n")
+
+cat("Summary of numeric result:\n")
+print(summary(PROTEINE_CREATININE_FIRST_99$proteinuria_protein_creatinine_result_as_number))
+cat("\n")
+
+cat("Units distribution:\n")
+print(table(PROTEINE_CREATININE_FIRST_99$proteinuria_protein_creatinine_result_unit, useNA = "ifany"))
+cat("\n")
+
+cat("Date range:\n")
+pcr_dates <- as.Date(PROTEINE_CREATININE_FIRST_99$proteinuria_protein_creatinine_result_date)
+cat("Min:", min(pcr_dates, na.rm = TRUE), "\n")
+cat("Max:", max(pcr_dates, na.rm = TRUE), "\n")
+cat("\n\n")
+
+# ============================================================================
+# 3. PROTEINURIA_24HR_FIRST_99 (24-hour Urine Protein)
+# ============================================================================
+
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n")
+cat("3. PROTEINURIA_24HR_FIRST_99 (24-hour Urine Protein)\n")
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n\n")
+
+cat("Total rows:", nrow(PROTEINURIA_24HR_FIRST_99), "\n")
+cat("Unique patients:", n_distinct(PROTEINURIA_24HR_FIRST_99$mdcinternalpatientid), "\n\n")
+
+cat("Column names:\n")
+print(colnames(PROTEINURIA_24HR_FIRST_99))
+cat("\n")
+
+cat("Summary of numeric result:\n")
+print(summary(PROTEINURIA_24HR_FIRST_99$proteinuria_24hr_result_as_number))
+cat("\n")
+
+cat("Check for string results (qualitative values):\n")
+if ("proteinuria_24hr_result_as_string" %in% colnames(PROTEINURIA_24HR_FIRST_99)) {
+  cat("String results available - First 20 unique values:\n")
+  print(head(table(PROTEINURIA_24HR_FIRST_99$proteinuria_24hr_result_as_string), 20))
+} else {
+  cat("No string result column found\n")
+}
+cat("\n")
+
+cat("Units distribution (if available):\n")
+if ("proteinuria_24hr_result_unit" %in% colnames(PROTEINURIA_24HR_FIRST_99)) {
+  print(table(PROTEINURIA_24HR_FIRST_99$proteinuria_24hr_result_unit, useNA = "ifany"))
+} else {
+  cat("No unit column found\n")
+}
+cat("\n")
+
+cat("Date range:\n")
+hr24_dates <- as.Date(PROTEINURIA_24HR_FIRST_99$proteinuria_24hr_result_date)
+cat("Min:", min(hr24_dates, na.rm = TRUE), "\n")
+cat("Max:", max(hr24_dates, na.rm = TRUE), "\n")
+cat("\n\n")
+
+# ============================================================================
+# 4. PROTEINURIA_ALBUMIN_FIRST_99 (Spot Albumin)
+# ============================================================================
+
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n")
+cat("4. PROTEINURIA_ALBUMIN_FIRST_99 (Spot Urine Albumin)\n")
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n\n")
+
+cat("Total rows:", nrow(PROTEINURIA_ALBUMIN_FIRST_99), "\n")
+cat("Unique patients:", n_distinct(PROTEINURIA_ALBUMIN_FIRST_99$mdcinternalpatientid), "\n\n")
+
+cat("Column names:\n")
+print(colnames(PROTEINURIA_ALBUMIN_FIRST_99))
+cat("\n")
+
+cat("Summary of numeric result:\n")
+print(summary(PROTEINURIA_ALBUMIN_FIRST_99$proteinuria_albumin_result_as_number))
+cat("\n")
+
+cat("Units distribution:\n")
+print(table(PROTEINURIA_ALBUMIN_FIRST_99$proteinuria_albumin_result_unit, useNA = "ifany"))
+cat("\n")
+
+cat("Unit analysis (mean values by unit):\n")
+unit_summary <- PROTEINURIA_ALBUMIN_FIRST_99 %>%
+  group_by(proteinuria_albumin_result_unit) %>%
+  summarise(
+    n = n(),
+    mean_value = mean(proteinuria_albumin_result_as_number, na.rm = TRUE),
+    median_value = median(proteinuria_albumin_result_as_number, na.rm = TRUE),
+    min_value = min(proteinuria_albumin_result_as_number, na.rm = TRUE),
+    max_value = max(proteinuria_albumin_result_as_number, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n))
+print(unit_summary)
+cat("\n")
+
+cat("Date range:\n")
+alb_dates <- as.Date(PROTEINURIA_ALBUMIN_FIRST_99$proteinuria_albumin_result_date)
+cat("Min:", min(alb_dates, na.rm = TRUE), "\n")
+cat("Max:", max(alb_dates, na.rm = TRUE), "\n")
+cat("\n\n")
+
+# ============================================================================
+# 5. PROTERIN_URINE_FIRST_99 (Spot Urine Protein)
+# ============================================================================
+
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n")
+cat("5. PROTERIN_URINE_FIRST_99 (Spot Urine Protein)\n")
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n\n")
+
+cat("Total rows:", nrow(PROTERIN_URINE_FIRST_99), "\n")
+cat("Unique patients:", n_distinct(PROTERIN_URINE_FIRST_99$mdcinternalpatientid), "\n\n")
+
+cat("Column names:\n")
+print(colnames(PROTERIN_URINE_FIRST_99))
+cat("\n")
+
+cat("Summary of numeric result:\n")
+print(summary(PROTERIN_URINE_FIRST_99$proteinuria_urine_sample_result_as_number))
+cat("\n")
+
+cat("Units distribution:\n")
+print(table(PROTERIN_URINE_FIRST_99$proteinuria_urine_sample_result_unit, useNA = "ifany"))
+cat("\n")
+
+cat("Unit analysis (mean values by unit):\n")
+unit_summary_urine <- PROTERIN_URINE_FIRST_99 %>%
+  group_by(proteinuria_urine_sample_result_unit) %>%
+  summarise(
+    n = n(),
+    mean_value = mean(proteinuria_urine_sample_result_as_number, na.rm = TRUE),
+    median_value = median(proteinuria_urine_sample_result_as_number, na.rm = TRUE),
+    min_value = min(proteinuria_urine_sample_result_as_number, na.rm = TRUE),
+    max_value = max(proteinuria_urine_sample_result_as_number, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n))
+print(unit_summary_urine)
+cat("\n")
+
+cat("Date range:\n")
+urine_dates <- as.Date(PROTERIN_URINE_FIRST_99$proteinuria_urine_sample_result_date)
+cat("Min:", min(urine_dates, na.rm = TRUE), "\n")
+cat("Max:", max(urine_dates, na.rm = TRUE), "\n")
+cat("\n\n")
+
+# ============================================================================
+# SUMMARY: Data Availability by Patient
+# ============================================================================
+
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n")
+cat("SUMMARY: Overlap Analysis - How Many Patients Have Each Test Type?\n")
+cat("=" %>% rep(80) %>% paste(collapse = ""), "\n\n")
+
+# Get unique patients from merged cohort
+cohort_patient_ids <- unique(merged$mdcinternalpatientid)
+
+cat("Total patients in cohort:", length(cohort_patient_ids), "\n\n")
+
+# Check overlap with each proteinuria source
+overlap_summary <- data.frame(
+  Test_Type = c(
+    "ACR (Albumin-Creatinine Ratio)",
+    "PCR (Protein-Creatinine Ratio)",
+    "24-hour Protein",
+    "Spot Albumin",
+    "Spot Urine Protein"
+  ),
+  N_Measurements = c(
+    nrow(ALBUMIN_CR_FIRST_99),
+    nrow(PROTEINE_CREATININE_FIRST_99),
+    nrow(PROTEINURIA_24HR_FIRST_99),
+    nrow(PROTEINURIA_ALBUMIN_FIRST_99),
+    nrow(PROTERIN_URINE_FIRST_99)
+  ),
+  N_Unique_Patients = c(
+    n_distinct(ALBUMIN_CR_FIRST_99$mdcinternalpatientid),
+    n_distinct(PROTEINE_CREATININE_FIRST_99$mdcinternalpatientid),
+    n_distinct(PROTEINURIA_24HR_FIRST_99$mdcinternalpatientid),
+    n_distinct(PROTEINURIA_ALBUMIN_FIRST_99$mdcinternalpatientid),
+    n_distinct(PROTERIN_URINE_FIRST_99$mdcinternalpatientid)
+  ),
+  N_In_Cohort = c(
+    sum(ALBUMIN_CR_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids),
+    sum(PROTEINE_CREATININE_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids),
+    sum(PROTEINURIA_24HR_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids),
+    sum(PROTEINURIA_ALBUMIN_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids),
+    sum(PROTERIN_URINE_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids)
+  ),
+  Patients_In_Cohort = c(
+    n_distinct(ALBUMIN_CR_FIRST_99$mdcinternalpatientid[ALBUMIN_CR_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids]),
+    n_distinct(PROTEINE_CREATININE_FIRST_99$mdcinternalpatientid[PROTEINE_CREATININE_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids]),
+    n_distinct(PROTEINURIA_24HR_FIRST_99$mdcinternalpatientid[PROTEINURIA_24HR_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids]),
+    n_distinct(PROTEINURIA_ALBUMIN_FIRST_99$mdcinternalpatientid[PROTEINURIA_ALBUMIN_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids]),
+    n_distinct(PROTERIN_URINE_FIRST_99$mdcinternalpatientid[PROTERIN_URINE_FIRST_99$mdcinternalpatientid %in% cohort_patient_ids])
+  )
+)
+
+print(overlap_summary)
+cat("\n")
+
+cat("✓ Exploration complete!\n")
+```
+
+# Step 3.2: Get baseline GFR (±1 year from index)
+
+```{r}
+
+# If multiple measurements within 90 days of each other, average them
+baseline_gfr_prep <- merged %>%
+  dplyr::select(mdcinternalpatientid, patient_id, index_date) %>%
+  left_join(
+    GFR_FIRST_99 %>% dplyr::select(mdcinternalpatientid, gfr_ckd_epi, gfr_gfr_category, gfr_start_date),
+    by = "mdcinternalpatientid"
+  ) %>%
+  mutate(
+    gfr_date = as.Date(gfr_start_date),
+    days_diff = as.numeric(difftime(gfr_date, index_date, units = "days"))
+  ) %>%
+  # Keep measurements from 365 days before to 365 days after index
+  filter(days_diff >= -365 & days_diff <= 365) %>%
+  arrange(mdcinternalpatientid, gfr_date)
+
+# For each patient, group measurements within 90 days and average them
+baseline_gfr <- baseline_gfr_prep %>%
+  group_by(mdcinternalpatientid) %>%
+  mutate(
+    # Calculate days between consecutive measurements
+    days_since_prev = c(NA, diff(as.numeric(gfr_date))),
+    # Create groups: new group if >90 days since previous measurement
+    measurement_group = cumsum(is.na(days_since_prev) | days_since_prev > 90)
+  ) %>%
+  # Average within each measurement group
+  group_by(mdcinternalpatientid, measurement_group) %>%
+  summarise(
+    baseline_gfr = mean(gfr_ckd_epi, na.rm = TRUE),
+    baseline_gfr_date = min(gfr_date),  # Use earliest date in group
+    n_measurements_averaged = n(),
+    days_diff = mean(days_diff),
+    .groups = "drop"
+  ) %>%
+  # For each patient, keep the measurement group closest to index
+  group_by(mdcinternalpatientid) %>%
+  arrange(abs(days_diff)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    baseline_gfr_category = case_when(
+      baseline_gfr >= 90 ~ "G1",
+      baseline_gfr >= 60 ~ "G2",
+      baseline_gfr >= 45 ~ "G3a",
+      baseline_gfr >= 30 ~ "G3b",
+      baseline_gfr >= 15 ~ "G4",
+      TRUE ~ "G5"
+    ),
+    baseline_gfr_days_from_index = days_diff
+  ) %>%
+  dplyr::select(mdcinternalpatientid, baseline_gfr, baseline_gfr_category, 
+                baseline_gfr_date, baseline_gfr_days_from_index, n_measurements_averaged)
+
+# Merge baseline GFR
+merged <- merged %>%
+  left_join(baseline_gfr, by = "mdcinternalpatientid")
+
+# Summary
+cat("=== Baseline GFR Summary (±1 year, averaged if <90 days apart) ===\n")
+cat("Patients with baseline GFR:", sum(!is.na(merged$baseline_gfr)), "\n")
+cat("Patients with GFR > 60:", sum(merged$baseline_gfr > 60, na.rm = TRUE), "\n")
+cat("Patients with GFR <= 60:", sum(merged$baseline_gfr <= 60, na.rm = TRUE), "\n\n")
+
+cat("Mean baseline GFR:", round(mean(merged$baseline_gfr, na.rm = TRUE), 1), "\n")
+cat("Median baseline GFR:", round(median(merged$baseline_gfr, na.rm = TRUE), 1), "\n")
+cat("Mean days from index to GFR:", round(mean(merged$baseline_gfr_days_from_index, na.rm = TRUE), 1), "\n")
+cat("Median days from index to GFR:", round(median(merged$baseline_gfr_days_from_index, na.rm = TRUE), 1), "\n\n")
+
+cat("Measurements averaged:\n")
+print(table(merged$n_measurements_averaged, useNA = "ifany"))
+
+cat("\nBaseline GFR categories:\n")
+print(table(merged$baseline_gfr_category, useNA = "ifany"))
+
+cat("\nTiming of GFR measurements:\n")
+cat("Before index:", sum(merged$baseline_gfr_days_from_index < 0, na.rm = TRUE), "\n")
+cat("After index:", sum(merged$baseline_gfr_days_from_index > 0, na.rm = TRUE), "\n")
+
+# Step 3.3: Create Ever Smoker Variable
+cat("\n=== Creating smoking variable ===\n")
+
+merged <- merged %>%
+  mutate(
+    ever_smoker = case_when(
+      smoking_by_life_style_smoking_status == "מעולם לא" ~ 0,  # Never Smoker
+      TRUE ~ 1  # All other categories (Current, Past, etc.) are Ever Smoker
+    )
+  )
+
+# Verify the result
+cat("Ever smoker distribution:\n")
+print(table(merged$ever_smoker, useNA = "always"))
+
+cat("\n✓ Chunk 3 complete\n")
+```
+
+
+
+
+# CHUNK 4: Calculate Baseline Proteinuria (±1 year, ALL 5 SOURCES)
+```{r}
+# ============================================================================
+# CHUNK 4: Calculate Baseline Proteinuria (±1 year, ALL 5 SOURCES)
+# ============================================================================
+
+cat("\n=== CHUNK 4: Processing baseline proteinuria (±1 year) ===\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4.1: Process ACR (Albumin-to-Creatinine Ratio)
+# Target: ≥300 mg/g = severely increased per KDIGO
+# ----------------------------------------------------------------------------
+
+cat("Processing ACR data...\n")
+
+acr_baseline <- merged %>%
+  dplyr::select(mdcinternalpatientid, patient_id, index_date) %>%
+  left_join(
+    ALBUMIN_CR_FIRST_99 %>% 
+      dplyr::select(mdcinternalpatientid, 
+                   albumin_creatinine_ratio_result_as_number,
+                   albumin_creatinine_ratio_result_unit,
+                   albumin_creatinine_ratio_result_date),
+    by = "mdcinternalpatientid"
+  ) %>%
+  mutate(
+    acr_date = as.Date(albumin_creatinine_ratio_result_date),
+    days_diff = as.numeric(difftime(acr_date, index_date, units = "days")),
+    
+    # Standardize all units to mg/g
+    acr_value = case_when(
+      # Already mg/g or equivalent
+      albumin_creatinine_ratio_result_unit %in% c("mg/g", "mg/g creat", "mg/g Crea", 
+                                                   "mg/gr", "mg/gr Cr", 
+                                                   "µg/mg", "mcg/mg", "ug/mg CREA") ~ 
+        albumin_creatinine_ratio_result_as_number,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  # Keep measurements ±1 year from index
+  filter(days_diff >= -365 & days_diff <= 365,
+         !is.na(acr_value)) %>%
+  # For each patient, get the maximum ACR value (worst case)
+  group_by(mdcinternalpatientid) %>%
+  arrange(desc(acr_value)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    acr_elevated = if_else(acr_value >= 300, 1, 0)
+  ) %>%
+  dplyr::select(mdcinternalpatientid, acr_value, acr_elevated, acr_date, 
+                acr_days_from_index = days_diff)
+
+cat("  Patients with ACR data:", nrow(acr_baseline), "\n")
+cat("  Patients with ACR ≥300:", sum(acr_baseline$acr_elevated == 1), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4.2: Process PCR (Protein-to-Creatinine Ratio)
+# Target: >500 mg/g = severely increased per KDIGO
+# ----------------------------------------------------------------------------
+
+cat("Processing PCR data...\n")
+
+pcr_baseline <- merged %>%
+  dplyr::select(mdcinternalpatientid, patient_id, index_date) %>%
+  left_join(
+    PROTEINE_CREATININE_FIRST_99 %>%
+      dplyr::select(mdcinternalpatientid,
+                   proteinuria_protein_creatinine_result_as_number,
+                   proteinuria_protein_creatinine_result_unit,
+                   proteinuria_protein_creatinine_result_date),
+    by = "mdcinternalpatientid"
+  ) %>%
+  mutate(
+    pcr_date = as.Date(proteinuria_protein_creatinine_result_date),
+    days_diff = as.numeric(difftime(pcr_date, index_date, units = "days")),
+    
+    # Standardize all units to mg/g
+    pcr_value = case_when(
+      # Already mg/g
+      proteinuria_protein_creatinine_result_unit %in% c("mg/g", "mg/g Crea", "mg/g creat",
+                                                         "mg/gr", "mg/gr creat") ~ 
+        proteinuria_protein_creatinine_result_as_number,
+      # grP/grC = grams per gram, multiply by 1000 to get mg/g
+      proteinuria_protein_creatinine_result_unit == "grP/grC" ~ 
+        proteinuria_protein_creatinine_result_as_number * 1000,
+      # mg/mg = multiply by 1000 to get mg/g
+      proteinuria_protein_creatinine_result_unit == "mg/mg" ~ 
+        proteinuria_protein_creatinine_result_as_number * 1000,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  # Keep measurements ±1 year from index
+  filter(days_diff >= -365 & days_diff <= 365,
+         !is.na(pcr_value)) %>%
+  # For each patient, get the maximum PCR value
+  group_by(mdcinternalpatientid) %>%
+  arrange(desc(pcr_value)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    pcr_elevated = if_else(pcr_value > 500, 1, 0)
+  ) %>%
+  dplyr::select(mdcinternalpatientid, pcr_value, pcr_elevated, pcr_date,
+                pcr_days_from_index = days_diff)
+
+cat("  Patients with PCR data:", nrow(pcr_baseline), "\n")
+cat("  Patients with PCR >500:", sum(pcr_baseline$pcr_elevated == 1), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4.3: Process 24-hour Protein
+# Target: >500 mg/day = severely increased per KDIGO
+# ----------------------------------------------------------------------------
+
+cat("Processing 24-hour protein data...\n")
+
+protein_24hr_baseline <- merged %>%
+  dplyr::select(mdcinternalpatientid, patient_id, index_date) %>%
+  left_join(
+    PROTEINURIA_24HR_FIRST_99 %>%
+      dplyr::select(mdcinternalpatientid,
+                   proteinuria_24hr_result_as_number,
+                   proteinuria_24hr_result_date),
+    by = "mdcinternalpatientid"
+  ) %>%
+  mutate(
+    protein_24hr_date = as.Date(proteinuria_24hr_result_date),
+    days_diff = as.numeric(difftime(protein_24hr_date, index_date, units = "days")),
+    
+    # Clean: remove negative values (data errors)
+    protein_24hr_value = if_else(proteinuria_24hr_result_as_number >= 0,
+                                 proteinuria_24hr_result_as_number,
+                                 NA_real_)
+  ) %>%
+  # Keep measurements ±1 year from index
+  filter(days_diff >= -365 & days_diff <= 365,
+         !is.na(protein_24hr_value)) %>%
+  # For each patient, get the maximum value
+  group_by(mdcinternalpatientid) %>%
+  arrange(desc(protein_24hr_value)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    protein_24hr_elevated = if_else(protein_24hr_value > 500, 1, 0)
+  ) %>%
+  dplyr::select(mdcinternalpatientid, protein_24hr_value, protein_24hr_elevated,
+                protein_24hr_date, protein_24hr_days_from_index = days_diff)
+
+cat("  Patients with 24-hour protein data:", nrow(protein_24hr_baseline), "\n")
+cat("  Patients with 24-hour protein >500:", sum(protein_24hr_baseline$protein_24hr_elevated == 1), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4.4: Process Spot Albumin
+# Target: >500 mg/L (concentration-based, supportive measure)
+# ----------------------------------------------------------------------------
+
+cat("Processing spot albumin data...\n")
+
+spot_albumin_baseline <- merged %>%
+  dplyr::select(mdcinternalpatientid, patient_id, index_date) %>%
+  left_join(
+    PROTEINURIA_ALBUMIN_FIRST_99 %>%
+      dplyr::select(mdcinternalpatientid,
+                   proteinuria_albumin_result_as_number,
+                   proteinuria_albumin_result_unit,
+                   proteinuria_albumin_result_date),
+    by = "mdcinternalpatientid"
+  ) %>%
+  mutate(
+    spot_alb_date = as.Date(proteinuria_albumin_result_date),
+    days_diff = as.numeric(difftime(spot_alb_date, index_date, units = "days")),
+    
+    # Standardize all units to mg/L
+    spot_alb_value = case_when(
+      # µg/ml = mg/L (multiply by 1)
+      proteinuria_albumin_result_unit %in% c("µg/ml", "µg/mL") ~ 
+        proteinuria_albumin_result_as_number * 1,
+      # mg/dL to mg/L (multiply by 10)
+      proteinuria_albumin_result_unit %in% c("mg/dL", "mg/dl") ~ 
+        proteinuria_albumin_result_as_number * 10,
+      # Already mg/L
+      proteinuria_albumin_result_unit %in% c("mg/L", "mg/l", "Mg/L", "MG/L") ~ 
+        proteinuria_albumin_result_as_number,
+      # mcg/mgCr is a ratio, not concentration - skip
+      proteinuria_albumin_result_unit == "mcg/mgCr" ~ NA_real_,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  # Keep measurements ±1 year from index
+  filter(days_diff >= -365 & days_diff <= 365,
+         !is.na(spot_alb_value),
+         spot_alb_value >= 0) %>%
+  # For each patient, get the maximum value
+  group_by(mdcinternalpatientid) %>%
+  arrange(desc(spot_alb_value)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    spot_alb_elevated = if_else(spot_alb_value > 500, 1, 0)
+  ) %>%
+  dplyr::select(mdcinternalpatientid, spot_alb_value, spot_alb_elevated,
+                spot_alb_date, spot_alb_days_from_index = days_diff)
+
+cat("  Patients with spot albumin data:", nrow(spot_albumin_baseline), "\n")
+cat("  Patients with spot albumin >500:", sum(spot_albumin_baseline$spot_alb_elevated == 1), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4.5: Process Spot Urine Protein
+# Target: >500 mg/L (concentration-based, supportive measure)
+# ----------------------------------------------------------------------------
+
+cat("Processing spot urine protein data...\n")
+
+spot_protein_baseline <- merged %>%
+  dplyr::select(mdcinternalpatientid, patient_id, index_date) %>%
+  left_join(
+    PROTERIN_URINE_FIRST_99 %>%
+      dplyr::select(mdcinternalpatientid,
+                   proteinuria_urine_sample_result_as_number,
+                   proteinuria_urine_sample_result_unit,
+                   proteinuria_urine_sample_result_date),
+    by = "mdcinternalpatientid"
+  ) %>%
+  mutate(
+    spot_prot_date = as.Date(proteinuria_urine_sample_result_date),
+    days_diff = as.numeric(difftime(spot_prot_date, index_date, units = "days")),
+    
+    # Standardize all units to mg/L
+    spot_prot_value = case_when(
+      # mg/dL to mg/L (multiply by 10)
+      proteinuria_urine_sample_result_unit %in% c("mg/dL", "mg/dl") ~ 
+        proteinuria_urine_sample_result_as_number * 10,
+      # Already mg/L
+      proteinuria_urine_sample_result_unit %in% c("mg/L", "mg/l") ~ 
+        proteinuria_urine_sample_result_as_number,
+      # g/l to mg/L (multiply by 1000)
+      proteinuria_urine_sample_result_unit == "g/l" ~ 
+        proteinuria_urine_sample_result_as_number * 1000,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  # Keep measurements ±1 year from index
+  filter(days_diff >= -365 & days_diff <= 365,
+         !is.na(spot_prot_value),
+         spot_prot_value >= 0) %>%
+  # For each patient, get the maximum value
+  group_by(mdcinternalpatientid) %>%
+  arrange(desc(spot_prot_value)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    spot_prot_elevated = if_else(spot_prot_value > 500, 1, 0)
+  ) %>%
+  dplyr::select(mdcinternalpatientid, spot_prot_value, spot_prot_elevated,
+                spot_prot_date, spot_prot_days_from_index = days_diff)
+
+cat("  Patients with spot protein data:", nrow(spot_protein_baseline), "\n")
+cat("  Patients with spot protein >500:", sum(spot_protein_baseline$spot_prot_elevated == 1), "\n\n")
+
+# ----------------------------------------------------------------------------
+# STEP 4.6: Combine ALL sources into single baseline proteinuria variable
+# ----------------------------------------------------------------------------
+
+cat("Combining all proteinuria sources...\n")
+
+# Merge all proteinuria sources back to merged
+merged <- merged %>%
+  left_join(acr_baseline, by = "mdcinternalpatientid") %>%
+  left_join(pcr_baseline, by = "mdcinternalpatientid") %>%
+  left_join(protein_24hr_baseline, by = "mdcinternalpatientid") %>%
+  left_join(spot_albumin_baseline, by = "mdcinternalpatientid") %>%
+  left_join(spot_protein_baseline, by = "mdcinternalpatientid")
+
+# Create combined baseline proteinuria variable
+# Elevated = 1 if ANY source shows elevation
+merged <- merged %>%
+  mutate(
+    baseline_proteinuria_elevated = case_when(
+      # If ANY test is elevated, mark as elevated
+      acr_elevated == 1 | 
+        pcr_elevated == 1 | 
+        protein_24hr_elevated == 1 | 
+        spot_alb_elevated == 1 | 
+        spot_prot_elevated == 1 ~ 1,
+      
+      # If all available tests are normal (not NA and not elevated), mark as normal
+      (!is.na(acr_elevated) & acr_elevated == 0) |
+        (!is.na(pcr_elevated) & pcr_elevated == 0) |
+        (!is.na(protein_24hr_elevated) & protein_24hr_elevated == 0) |
+        (!is.na(spot_alb_elevated) & spot_alb_elevated == 0) |
+        (!is.na(spot_prot_elevated) & spot_prot_elevated == 0) ~ 0,
+      
+      # If no proteinuria data at all, mark as missing
+      TRUE ~ NA_real_
+    ),
+    
+    # Track which sources contributed
+    n_protein_sources = (!is.na(acr_elevated)) + 
+                       (!is.na(pcr_elevated)) + 
+                       (!is.na(protein_24hr_elevated)) + 
+                       (!is.na(spot_alb_elevated)) + 
+                       (!is.na(spot_prot_elevated))
+  )
+
+# ----------------------------------------------------------------------------
+# STEP 4.7: Summary Statistics
+# ----------------------------------------------------------------------------
+
+cat("\n=== BASELINE PROTEINURIA SUMMARY (±1 year) ===\n\n")
+
+cat("Data availability by source:\n")
+cat("  ACR data:", sum(!is.na(merged$acr_value)), "patients\n")
+cat("  PCR data:", sum(!is.na(merged$pcr_value)), "patients\n")
+cat("  24-hour protein:", sum(!is.na(merged$protein_24hr_value)), "patients\n")
+cat("  Spot albumin:", sum(!is.na(merged$spot_alb_value)), "patients\n")
+cat("  Spot protein:", sum(!is.na(merged$spot_prot_value)), "patients\n")
+cat("  ANY proteinuria test:", sum(merged$n_protein_sources > 0), "patients\n")
+cat("  NO proteinuria test:", sum(merged$n_protein_sources == 0), "patients\n\n")
+
+cat("Elevated proteinuria by source:\n")
+cat("  ACR ≥300:", sum(merged$acr_elevated == 1, na.rm = TRUE), "patients\n")
+cat("  PCR >500:", sum(merged$pcr_elevated == 1, na.rm = TRUE), "patients\n")
+cat("  24-hour >500:", sum(merged$protein_24hr_elevated == 1, na.rm = TRUE), "patients\n")
+cat("  Spot albumin >500:", sum(merged$spot_alb_elevated == 1, na.rm = TRUE), "patients\n")
+cat("  Spot protein >500:", sum(merged$spot_prot_elevated == 1, na.rm = TRUE), "patients\n\n")
+
+cat("Combined baseline proteinuria:\n")
+cat("  Elevated (any source):", sum(merged$baseline_proteinuria_elevated == 1, na.rm = TRUE), "patients\n")
+cat("  Normal (all tests normal):", sum(merged$baseline_proteinuria_elevated == 0, na.rm = TRUE), "patients\n")
+cat("  Missing (no tests):", sum(is.na(merged$baseline_proteinuria_elevated)), "patients\n\n")
+
+cat("Number of proteinuria sources per patient:\n")
+print(table(merged$n_protein_sources, useNA = "always"))
+cat("\n")
+
+# By Lupus status
+cat("Proteinuria by Lupus status:\n")
+proteinuria_by_lupus <- merged %>%
+  group_by(Lupus) %>%
+  summarise(
+    n = n(),
+    n_with_data = sum(n_protein_sources > 0),
+    n_elevated = sum(baseline_proteinuria_elevated == 1, na.rm = TRUE),
+    pct_elevated = round(100 * n_elevated / n_with_data, 1)
+  )
+print(proteinuria_by_lupus)
+cat("\n")
+
+cat("✓ Chunk 4 complete\n")
+```
+
+
+```{r}
+# ============================================================================
+# FIX: Rename merged to cohort
+# ============================================================================
+
+cat("\n=== Renaming merged to cohort ===\n\n")
+
+cohort <- merged
+
+cat("✓ Cohort created from 'merged' object\n")
+cat("  Rows:", nrow(cohort), "\n")
+cat("  Columns:", ncol(cohort), "\n")
+
+# Verify key columns exist
+cat("\nVerifying key columns:\n")
+cat("  mdcinternalpatientid:", "mdcinternalpatientid" %in% names(cohort), "\n")
+cat("  Lupus:", "Lupus" %in% names(cohort), "\n")
+cat("  index_date:", "index_date" %in% names(cohort), "\n")
+
+# Show first few column names
+cat("\nFirst 20 column names:\n")
+print(head(names(cohort), 20))
+
+cat("\n✓ Ready to run Chunk 5!\n\n")
+```
+
+
+# CHUNK 5: Apply Inclusion Criteria (Yiftach's Requirements)
+
+```{r}
+# ============================================================================
+# CHUNK 5 (REVISED): Baseline Assessment - CORRECTED
+# ============================================================================
+
+cat("\n=== CHUNK 5: Baseline GFR and Proteinuria Assessment (CORRECTED) ===\n\n")
+
+library(dplyr)
+library(lubridate)
+
+# ============================================================================
+# STEP 1: Baseline GFR Assessment (CORRECTED LOGIC)
+# ============================================================================
+
+cat("=== STEP 1: Baseline GFR Assessment ===\n\n")
+
+if (!exists("GFR_FIRST_99")) {
+  cat("⚠ GFR_FIRST_99 not found\n\n")
+  
+  cohort <- cohort %>%
+    mutate(
+      has_baseline_gfr = FALSE,
+      baseline_gfr = NA_real_,
+      baseline_gfr_date = as.Date(NA),
+      has_old_low_gfr = FALSE
+    )
+  
+} else {
+  
+  cat("Processing baseline GFR assessment...\n\n")
+  
+  # ----------------------------------------------------------------------------
+  # PART A: Inclusion - Need GFR in year before OR year after index
+  # Window: [index - 365 days, index + 365 days]
+  # ----------------------------------------------------------------------------
+  
+  cat("PART A: Checking for GFR in inclusion window (index ± 365 days)...\n")
+  
+  gfr_inclusion_window <- GFR_FIRST_99 %>%
+    inner_join(cohort %>% select(mdcinternalpatientid, patient_id, index_date),
+               by = "mdcinternalpatientid") %>%
+    mutate(
+      gfr_date = as.Date(gfr_start_date),
+      gfr_value = as.numeric(gfr_ckd_epi),
+      days_from_index = as.numeric(difftime(gfr_date, index_date, units = "days"))
+    ) %>%
+    filter(!is.na(gfr_date) & !is.na(gfr_value)) %>%
+    filter(days_from_index >= -365 & days_from_index <= 365)
+  
+  cat("  GFR measurements in inclusion window:", nrow(gfr_inclusion_window), "\n")
+  
+  # Get baseline GFR (closest to index)
+  baseline_gfr_inclusion <- gfr_inclusion_window %>%
+    group_by(mdcinternalpatientid) %>%
+    summarise(
+      has_baseline_gfr = TRUE,
+      baseline_gfr = gfr_value[which.min(abs(days_from_index))],
+      baseline_gfr_date = gfr_date[which.min(abs(days_from_index))],
+      .groups = "drop"
+    )
+  
+  cat("  Patients with GFR in inclusion window:", nrow(baseline_gfr_inclusion), "\n\n")
+  
+  # ----------------------------------------------------------------------------
+  # PART B: Exclusion - GFR <60 MORE THAN 1 year before index
+  # Window: [earliest date, index - 365 days]
+  # ----------------------------------------------------------------------------
+  
+  cat("PART B: Checking for GFR <60 MORE THAN 1 year before index...\n")
+  
+  gfr_old_history <- GFR_FIRST_99 %>%
+    inner_join(cohort %>% select(mdcinternalpatientid, index_date),
+               by = "mdcinternalpatientid") %>%
+    mutate(
+      gfr_date = as.Date(gfr_start_date),
+      gfr_value = as.numeric(gfr_ckd_epi),
+      days_from_index = as.numeric(difftime(gfr_date, index_date, units = "days"))
+    ) %>%
+    filter(!is.na(gfr_date) & !is.na(gfr_value)) %>%
+    filter(days_from_index < -365)  # MORE THAN 1 year before index
+  
+  cat("  GFR measurements >1 year before index:", nrow(gfr_old_history), "\n")
+  
+  # Check for ANY GFR <60 in this old period
+  old_low_gfr <- gfr_old_history %>%
+    filter(gfr_value < 60) %>%
+    group_by(mdcinternalpatientid) %>%
+    summarise(has_old_low_gfr = TRUE, .groups = "drop")
+  
+  cat("  Patients with GFR <60 >1 year before index:", nrow(old_low_gfr), " (will be excluded)\n\n")
+  
+  # ----------------------------------------------------------------------------
+  # PART C: Merge results
+  # ----------------------------------------------------------------------------
+  
+  # Remove old columns if exist
+  cols_to_remove <- c("has_baseline_gfr", "baseline_gfr", "baseline_gfr_date", "has_old_low_gfr")
+  for (col in cols_to_remove) {
+    if (col %in% names(cohort)) {
+      cohort <- cohort %>% select(-all_of(col))
+    }
+  }
+  
+  # Merge inclusion criteria
+  cohort <- cohort %>%
+    left_join(baseline_gfr_inclusion, by = "mdcinternalpatientid") %>%
+    mutate(has_baseline_gfr = replace_na(has_baseline_gfr, FALSE))
+  
+  # Merge exclusion criteria
+  cohort <- cohort %>%
+    left_join(old_low_gfr, by = "mdcinternalpatientid") %>%
+    mutate(has_old_low_gfr = replace_na(has_old_low_gfr, FALSE))
+  
+  cat("✓ Baseline GFR assessment complete\n\n")
+}
+
+# ============================================================================
+# STEP 2: Baseline Proteinuria Assessment (UNCHANGED)
+# ============================================================================
+
+cat("=== STEP 2: Baseline Proteinuria Assessment ===\n\n")
+
+if (!exists("PROTEINE_CREATININE_FIRST_99")) {
+  cat("⚠ PROTEINE_CREATININE_FIRST_99 not found\n\n")
+  
+  cohort <- cohort %>%
+    mutate(baseline_proteinuria_elevated = FALSE)
+  
+} else {
+  
+  cat("Processing proteinuria BEFORE index date...\n")
+  
+  # PCR before index
+  pcr_baseline <- PROTEINE_CREATININE_FIRST_99 %>%
+    inner_join(cohort %>% select(mdcinternalpatientid, index_date),
+               by = "mdcinternalpatientid") %>%
+    mutate(
+      protein_date = as.Date(proteinuria_protein_creatinine_result_date),
+      pcr_value = as.numeric(proteinuria_protein_creatinine_result_as_number)
+    ) %>%
+    filter(!is.na(protein_date) & protein_date < index_date) %>%
+    filter(!is.na(pcr_value) & pcr_value > 0) %>%
+    select(mdcinternalpatientid, protein_date, pcr_value)
+  
+  cat("  PCR measurements before index:", nrow(pcr_baseline), "\n")
+  
+  # ACR before index
+  if (exists("ALBUMIN_CR_FIRST_99")) {
+    acr_baseline <- ALBUMIN_CR_FIRST_99 %>%
+      inner_join(cohort %>% select(mdcinternalpatientid, index_date),
+                 by = "mdcinternalpatientid") %>%
+      mutate(
+        protein_date = as.Date(albumin_creatinine_ratio_result_date),
+        pcr_value = as.numeric(albumin_creatinine_ratio_result_as_number) * 1.5
+      ) %>%
+      filter(!is.na(protein_date) & protein_date < index_date) %>%
+      filter(!is.na(pcr_value) & pcr_value > 0) %>%
+      select(mdcinternalpatientid, protein_date, pcr_value)
+    
+    cat("  ACR measurements before index:", nrow(acr_baseline), "\n")
+  } else {
+    acr_baseline <- data.frame()
+  }
+  
+  # Combine
+  protein_baseline_all <- bind_rows(pcr_baseline, acr_baseline)
+  
+  cat("  Total proteinuria measurements before index:", nrow(protein_baseline_all), "\n")
+  
+  # ANY >500 before index
+  baseline_protein_elevated <- protein_baseline_all %>%
+    filter(pcr_value > 500) %>%
+    group_by(mdcinternalpatientid) %>%
+    summarise(baseline_proteinuria_elevated_new = TRUE, .groups = "drop")
+  
+  cat("  Patients with ANY proteinuria >500 before index:", nrow(baseline_protein_elevated), "\n\n")
+  
+  # Remove old column if exists
+  if ("baseline_proteinuria_elevated" %in% names(cohort)) {
+    cohort <- cohort %>% select(-baseline_proteinuria_elevated)
+  }
+  
+  # Merge
+  cohort <- cohort %>%
+    left_join(baseline_protein_elevated, by = "mdcinternalpatientid") %>%
+    mutate(baseline_proteinuria_elevated = replace_na(baseline_proteinuria_elevated_new, FALSE)) %>%
+    select(-baseline_proteinuria_elevated_new)
+  
+  cat("✓ Baseline proteinuria assessment complete\n\n")
+}
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("✓ CHUNK 5 COMPLETE!\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+cat("BASELINE ASSESSMENT SUMMARY:\n\n")
+
+cat("Cohort size:", nrow(cohort), "\n\n")
+
+cat("INCLUSION Criterion (GFR in year before OR year after index):\n")
+cat("  Patients WITH GFR in window:", sum(cohort$has_baseline_gfr), "\n")
+cat("  Patients WITHOUT GFR in window:", sum(!cohort$has_baseline_gfr), " (will be excluded)\n\n")
+
+cat("EXCLUSION Criteria:\n")
+cat("  1. GFR <60 >1 year BEFORE index:", sum(cohort$has_old_low_gfr), " (will be excluded)\n")
+cat("  2. Proteinuria >500 before index:", sum(cohort$baseline_proteinuria_elevated), " (will be excluded)\n\n")
+
+cat("Expected final cohort:\n")
+eligible <- cohort %>%
+  filter(has_baseline_gfr & !has_old_low_gfr & !baseline_proteinuria_elevated)
+
+cat("  Total after exclusions:", nrow(eligible), "\n")
+
+eligible_by_lupus <- eligible %>%
+  group_by(Lupus) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  mutate(Lupus = factor(Lupus, levels = c(0, 1), labels = c("Control", "Lupus")))
+
+print(eligible_by_lupus)
+cat("\n")
+
+cat("✓ Ready for Chunk 6!\n\n")
+```
+
+
+
+# CHUNK 6: Cohort Preparation for Prognostic Analysis
+
+```{r}
+# ============================================================================
+# CHUNK 6 (REVISED): Apply Exclusions - CORRECTED
+# ============================================================================
+
+cat("\n=== CHUNK 6: Applying Exclusions ===\n\n")
+
+cat("Starting cohort:", nrow(cohort), "\n\n")
+
+# ============================================================================
+# EXCLUSION 1: No GFR in inclusion window
+# ============================================================================
+
+cat("EXCLUSION 1: No GFR in inclusion window (index ± 365 days)\n")
+
+excluded_no_gfr <- cohort %>% filter(!has_baseline_gfr)
+cat("  Excluded:", nrow(excluded_no_gfr), "\n")
+
+cohort <- cohort %>% filter(has_baseline_gfr)
+cat("  Remaining:", nrow(cohort), "\n\n")
+
+# ============================================================================
+# EXCLUSION 2: GFR <60 MORE THAN 1 year before index
+# ============================================================================
+
+cat("EXCLUSION 2: GFR <60 >1 year before index\n")
+
+excluded_old_low <- cohort %>% filter(has_old_low_gfr)
+cat("  Excluded:", nrow(excluded_old_low), "\n")
+
+cohort <- cohort %>% filter(!has_old_low_gfr)
+cat("  Remaining:", nrow(cohort), "\n\n")
+
+# ============================================================================
+# EXCLUSION 3: Proteinuria >500 before index
+# ============================================================================
+
+cat("EXCLUSION 3: Proteinuria >500 before index\n")
+
+excluded_protein <- cohort %>% filter(baseline_proteinuria_elevated)
+cat("  Excluded:", nrow(excluded_protein), "\n")
+
+cohort <- cohort %>% filter(!baseline_proteinuria_elevated)
+cat("  Remaining:", nrow(cohort), "\n\n")
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+
+cat("=== FINAL COHORT ===\n\n")
+cat("  Total:", nrow(cohort), "\n")
+
+by_lupus <- cohort %>%
+  group_by(Lupus) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  mutate(Lupus = factor(Lupus, levels = c(0, 1), labels = c("Control", "Lupus")))
+
+print(by_lupus)
+cat("\n✓ Chunk 6 complete\n\n")
+```
+
+
+
+
+
+#chunck 7 outcome def
+
+```{r}
+# ============================================================================
+# CHUNK 7 (REVISED): Create Outcomes (PRIMARY and SENSITIVITY with AND)
+# ============================================================================
+
+cat("\n=== CHUNK 7: Creating Outcome Variables ===\n\n")
+
+library(dplyr)
+
+# ============================================================================
+# PART 1: End Follow-up Date
+# ============================================================================
+
+cat("=== PART 1: End Follow-up Date ===\n\n")
+
+DATABASE_END_DATE <- as.Date("2025-12-31")
+
+cohort <- cohort %>%
+  mutate(
+    end_followup_date = if_else(!is.na(death_date), death_date, DATABASE_END_DATE),
+    total_followup_years = as.numeric(difftime(end_followup_date, index_date, units = "days")) / 365.25
+  )
+
+cat("✓ End follow-up created. Mean follow-up:", round(mean(cohort$total_followup_years), 2), "years\n\n")
+
+# ============================================================================
+# PART 2: CKD PRIMARY (GFR <60 CONFIRMED)
+# ============================================================================
+
+cat("=== PART 2: CKD PRIMARY (GFR <60 Confirmed) ===\n\n")
+
+if (!exists("GFR_FIRST_99")) {
+  cat("⚠ GFR_FIRST_99 not found\n\n")
+  cohort <- cohort %>%
+    mutate(ckd_gfr_date = as.Date(NA), ckd_gfr_event = 0, ckd_gfr_status = 0)
+  
+} else {
+  
+  cat("Processing GFR <60 during follow-up...\n")
+  
+  gfr_followup <- GFR_FIRST_99 %>%
+    inner_join(cohort %>% select(mdcinternalpatientid, index_date, end_followup_date),
+               by = "mdcinternalpatientid") %>%
+    mutate(
+      gfr_date = as.Date(gfr_start_date),
+      gfr_value = as.numeric(gfr_ckd_epi)
+    ) %>%
+    filter(!is.na(gfr_date) & !is.na(gfr_value)) %>%
+    filter(gfr_date > index_date & gfr_date <= end_followup_date)  # After index
+  
+  gfr_low <- gfr_followup %>%
+    filter(gfr_value < 60) %>%
+    arrange(mdcinternalpatientid, gfr_date)
+  
+  cat("  Patients with ANY GFR <60 after index:", n_distinct(gfr_low$mdcinternalpatientid), "\n")
+  
+  patients_ckd <- gfr_low %>%
+    group_by(mdcinternalpatientid) %>%
+    filter(n() >= 2) %>%
+    ungroup()
+  
+  cat("  Checking for confirmed pairs...\n")
+  
+  ckd_confirmed_list <- list()
+  ckd_patient_ids <- unique(patients_ckd$mdcinternalpatientid)
+  
+  for (pid in ckd_patient_ids) {
+    patient_data <- patients_ckd %>%
+      filter(mdcinternalpatientid == pid) %>%
+      arrange(gfr_date)
+    
+    found_pair <- FALSE
+    first_date <- NA
+    
+    if (nrow(patient_data) >= 2) {
+      for (i in 1:(nrow(patient_data) - 1)) {
+        for (j in (i + 1):nrow(patient_data)) {
+          days_diff <- as.numeric(difftime(patient_data$gfr_date[j], 
+                                          patient_data$gfr_date[i], 
+                                          units = "days"))
+          if (days_diff > 90) {
+            found_pair <- TRUE
+            first_date <- patient_data$gfr_date[i]
+            break
+          }
+        }
+        if (found_pair) break
+      }
+    }
+    
+    if (found_pair) {
+      ckd_confirmed_list[[length(ckd_confirmed_list) + 1]] <- data.frame(
+        mdcinternalpatientid = pid,
+        ckd_gfr_date = first_date
+      )
+    }
+  }
+  
+  if (length(ckd_confirmed_list) > 0) {
+    ckd_confirmed <- bind_rows(ckd_confirmed_list)
+    cat("  CONFIRMED CKD (GFR <60):", nrow(ckd_confirmed), "\n\n")
+  } else {
+    ckd_confirmed <- data.frame(mdcinternalpatientid = character(), ckd_gfr_date = as.Date(character()))
+    cat("  No confirmed CKD\n\n")
+  }
+  
+  cohort <- cohort %>%
+    left_join(ckd_confirmed, by = "mdcinternalpatientid") %>%
+    mutate(
+      ckd_gfr_event = if_else(!is.na(ckd_gfr_date), 1, 0),
+      ckd_gfr_status = ckd_gfr_event,
+      ckd_gfr_followup_years = as.numeric(difftime(
+        if_else(!is.na(ckd_gfr_date), ckd_gfr_date, end_followup_date),
+        index_date, units = "days")) / 365.25
+    )
+  
+  cat("✓ PRIMARY CKD complete\n")
+  cat("  Events:", sum(cohort$ckd_gfr_event), "\n")
+  cat("  Rate:", round(100 * mean(cohort$ckd_gfr_event), 2), "%\n\n")
+}
+
+# ============================================================================
+# PART 3: PROTEINURIA >500 (During Follow-up)
+# ============================================================================
+
+cat("=== PART 3: Proteinuria >500 During Follow-up ===\n\n")
+
+if (!exists("PROTEINE_CREATININE_FIRST_99")) {
+  cat("⚠ PROTEINE_CREATININE_FIRST_99 not found\n\n")
+  cohort <- cohort %>%
+    mutate(proteinuria_date = as.Date(NA), proteinuria_event = 0)
+  
+} else {
+  
+  cat("Processing proteinuria during follow-up...\n")
+  
+  # PCR during follow-up
+  pcr_followup <- PROTEINE_CREATININE_FIRST_99 %>%
+    inner_join(cohort %>% select(mdcinternalpatientid, index_date, end_followup_date),
+               by = "mdcinternalpatientid") %>%
+    mutate(
+      protein_date = as.Date(proteinuria_protein_creatinine_result_date),
+      pcr_value = as.numeric(proteinuria_protein_creatinine_result_as_number)
+    ) %>%
+    filter(!is.na(protein_date) & protein_date > index_date & protein_date <= end_followup_date) %>%
+    filter(!is.na(pcr_value) & pcr_value > 0) %>%
+    select(mdcinternalpatientid, protein_date, pcr_value)
+  
+  # ACR during follow-up
+  if (exists("ALBUMIN_CR_FIRST_99")) {
+    acr_followup <- ALBUMIN_CR_FIRST_99 %>%
+      inner_join(cohort %>% select(mdcinternalpatientid, index_date, end_followup_date),
+                 by = "mdcinternalpatientid") %>%
+      mutate(
+        protein_date = as.Date(albumin_creatinine_ratio_result_date),
+        pcr_value = as.numeric(albumin_creatinine_ratio_result_as_number) * 1.5
+      ) %>%
+      filter(!is.na(protein_date) & protein_date > index_date & protein_date <= end_followup_date) %>%
+      filter(!is.na(pcr_value) & pcr_value > 0) %>%
+      select(mdcinternalpatientid, protein_date, pcr_value)
+  } else {
+    acr_followup <- data.frame()
+  }
+  
+  protein_followup_all <- bind_rows(pcr_followup, acr_followup)
+  
+  cat("  Total measurements during follow-up:", nrow(protein_followup_all), "\n")
+  cat("  Measurements >500:", sum(protein_followup_all$pcr_value > 500), "\n")
+  
+  # First proteinuria >500 during follow-up
+  protein_events <- protein_followup_all %>%
+    filter(pcr_value > 500) %>%
+    group_by(mdcinternalpatientid) %>%
+    slice_min(protein_date, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    select(mdcinternalpatientid, proteinuria_date = protein_date)
+  
+  cat("  Patients with proteinuria >500:", nrow(protein_events), "\n\n")
+  
+  cohort <- cohort %>%
+    left_join(protein_events, by = "mdcinternalpatientid") %>%
+    mutate(proteinuria_event = if_else(!is.na(proteinuria_date), 1, 0))
+  
+  cat("✓ Proteinuria complete. Events:", sum(cohort$proteinuria_event), "\n\n")
+}
+
+# ============================================================================
+# PART 4: SENSITIVITY OUTCOME (GFR <60 AND Proteinuria >500)
+# ============================================================================
+
+cat("=== PART 4: SENSITIVITY - CKD with GFR AND Proteinuria ===\n\n")
+
+cohort <- cohort %>%
+  mutate(
+    # BOTH must have occurred
+    ckd_sensitivity_event = if_else(ckd_gfr_event == 1 & proteinuria_event == 1, 1, 0),
+    
+    # Date = LATER of the two (when both criteria met)
+    ckd_sensitivity_date = if_else(
+      ckd_sensitivity_event == 1,
+      pmax(ckd_gfr_date, proteinuria_date, na.rm = TRUE),
+      as.Date(NA)
+    ),
+    
+    ckd_sensitivity_status = ckd_sensitivity_event,
+    
+    ckd_sensitivity_followup_years = as.numeric(difftime(
+      if_else(!is.na(ckd_sensitivity_date), ckd_sensitivity_date, end_followup_date),
+      index_date, units = "days")) / 365.25
+  )
+
+cat("✓ SENSITIVITY outcome created (GFR <60 AND Proteinuria >500)\n")
+cat("  Events:", sum(cohort$ckd_sensitivity_event), "\n")
+cat("  Rate:", round(100 * mean(cohort$ckd_sensitivity_event), 2), "%\n\n")
+
+# ============================================================================
+# PART 5: Other Outcomes (ESKD, MACE, Mortality)
+# ============================================================================
+
+cat("=== PART 5: Other Outcomes ===\n\n")
+
+# Clean ESKD dates
+cohort <- cohort %>%
+  mutate(
+    dialysis_diag_date_clean = as.Date(dialysis_diag_start_date),
+    dialysis_diag_date_clean = if_else(!is.na(dialysis_diag_date_clean) & dialysis_diag_date_clean > index_date,
+                                       dialysis_diag_date_clean, as.Date(NA)),
+    
+    dialysis_proc_date_clean = as.Date(dialysis_procedure_procedure_date),
+    dialysis_proc_date_clean = if_else(!is.na(dialysis_proc_date_clean) & dialysis_proc_date_clean > index_date,
+                                       dialysis_proc_date_clean, as.Date(NA)),
+    
+    transplant_diag_date_clean = as.Date(kidney_transplantation_diag_start_date),
+    transplant_diag_date_clean = if_else(!is.na(transplant_diag_date_clean) & transplant_diag_date_clean > index_date,
+                                         transplant_diag_date_clean, as.Date(NA)),
+    
+    transplant_proc_date_clean = as.Date(kidney_transplantation_proc_procedure_date),
+    transplant_proc_date_clean = if_else(!is.na(transplant_proc_date_clean) & transplant_proc_date_clean > index_date,
+                                         transplant_proc_date_clean, as.Date(NA)),
+    
+    eskd_admin_date_clean = as.Date(eskd_start_date),
+    eskd_admin_date_clean = if_else(!is.na(eskd_admin_date_clean) & eskd_admin_date_clean > index_date,
+                                    eskd_admin_date_clean, as.Date(NA))
+  )
+
+# ESKD (skip GFR <15 for simplicity - can add later if needed)
+cohort <- cohort %>%
+  mutate(
+    eskd_date = pmin(dialysis_diag_date_clean, dialysis_proc_date_clean,
+                     transplant_diag_date_clean, transplant_proc_date_clean,
+                     eskd_admin_date_clean, na.rm = TRUE),
+    eskd_date = if_else(is.infinite(eskd_date), as.Date(NA), eskd_date),
+    eskd_event = if_else(!is.na(eskd_date), 1, 0),
+    eskd_status = eskd_event,
+    eskd_followup_years = as.numeric(difftime(
+      if_else(!is.na(eskd_date), eskd_date, end_followup_date),
+      index_date, units = "days")) / 365.25
+  )
+
+cat("✓ ESKD. Events:", sum(cohort$eskd_event), "\n")
+
+# MACE
+cohort <- cohort %>%
+  mutate(
+    mace_event = if_else(!is.na(mace_date), 1, 0),
+    mace_status = mace_event,
+    mace_followup_years = as.numeric(difftime(
+      if_else(!is.na(mace_date), mace_date, end_followup_date),
+      index_date, units = "days")) / 365.25
+  )
+
+cat("✓ MACE. Events:", sum(cohort$mace_event), "\n")
+
+# Mortality
+cohort <- cohort %>%
+  mutate(
+    death_event = if_else(!is.na(death_date), 1, 0),
+    death_status = death_event,
+    death_followup_years = as.numeric(difftime(
+      if_else(!is.na(death_date), death_date, end_followup_date),
+      index_date, units = "days")) / 365.25
+  )
+
+cat("✓ Mortality. Events:", sum(cohort$death_event), "\n\n")
+
+# ============================================================================
+# FINAL SUMMARY
+# ============================================================================
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("✓ ALL OUTCOMES COMPLETE!\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+outcomes_summary <- data.frame(
+  Outcome = c("CKD (GFR <60) - PRIMARY", 
+              "CKD (GFR <60 AND Proteinuria >500) - SENSITIVITY",
+              "ESKD", "MACE", "Mortality"),
+  Events = c(sum(cohort$ckd_gfr_event), sum(cohort$ckd_sensitivity_event),
+             sum(cohort$eskd_event), sum(cohort$mace_event), sum(cohort$death_event)),
+  Rate = paste0(round(100 * c(mean(cohort$ckd_gfr_event), mean(cohort$ckd_sensitivity_event),
+                               mean(cohort$eskd_event), mean(cohort$mace_event),
+                               mean(cohort$death_event)), 2), "%")
+)
+
+print(outcomes_summary)
+cat("\n")
+
+by_lupus <- cohort %>%
+  group_by(Lupus) %>%
+  summarise(
+    N = n(),
+    CKD_GFR = sum(ckd_gfr_event),
+    CKD_Sensitivity = sum(ckd_sensitivity_event),
+    ESKD = sum(eskd_event),
+    MACE = sum(mace_event),
+    Death = sum(death_event),
+    .groups = "drop"
+  )
+
+print(by_lupus)
+cat("\n✓ Chunk 7 complete!\n\n")
+```
+
+
+
+
+
+`
+
+
+
+
+
+# CHUNK 8: Table 1 - Baseline Characteristics (Lupus vs Control)
+
+```{r}
+# ============================================================================
+# CHUNK 8 (CORRECTED): Table 1 - Baseline Characteristics
+# ============================================================================
+
+cat("\n=== CHUNK 8: Creating Table 1 - Baseline Characteristics ===\n\n")
+
+library(gtsummary)
+library(dplyr)
+library(flextable)
+library(officer)
+
+# ----------------------------------------------------------------------------
+# Prepare variables for Table 1
+# ----------------------------------------------------------------------------
+
+cat("Preparing variables for Table 1...\n")
+
+table1_data <- cohort %>%
+  mutate(
+    # Create lupus_group factor
+    lupus_group = factor(Lupus, levels = c(0, 1), labels = c("Control", "Lupus")),
+    
+    # Use available BMI variable
+    bmi_clean = bmi_first_community_bmi,  # Use the community BMI variable
+    
+    # Comorbidities
+    diabetes = diabetes_diagnosis,
+    hypertension = hypertension_diagnosis,
+    
+    # Lupus medications
+    hydroxy_binary = hydroxychloroquine_medication,
+    aza_binary = azathioprine_medication,
+    mmf_binary = mycophenolate_medication,
+    mtx_binary = methotrexate_medication,
+    pred_binary = prednisone_medication,
+    biologics_binary = if_else(rituximab_medication == 1 | belimumab_medication == 1, 1, 0),
+    calcineurin_binary = if_else(tacrolimus_medication == 1 | ciclosporin_medication == 1, 1, 0),
+    
+    # CV medications
+    raas_binary = if_else(ace_medication == 1 | arbs_medication == 1, 1, 0),
+    statins_binary = statins_medication,
+    aspirin_binary = aspirin_medication,
+    antihtn_binary = if_else(beta_blockers_medication == 1 | 
+                            calcium_channel_blockers_medication == 1 | 
+                            diuretics_medication == 1, 1, 0),
+    dm_meds_binary = if_else(sglt_2_medication == 1 | glp_1_medication == 1 | 
+                            metformin_medication == 1 | insulin_medication == 1, 1, 0)
+  )
+
+cat("✓ Variables prepared\n\n")
+
+# ----------------------------------------------------------------------------
+# Create Table 1
+# ----------------------------------------------------------------------------
+
+cat("Creating Table 1...\n")
+
+# Variables list - using ACTUAL variable names
+table1_vars <- c(
+  "age_at_index", "gender", "ever_smoker",
+  "bmi_clean",
+  "baseline_gfr",
+  "diabetes", "hypertension",
+  "hydroxy_binary", "aza_binary", "mmf_binary", "mtx_binary", "pred_binary",
+  "biologics_binary", "calcineurin_binary",
+  "raas_binary", "statins_binary", "aspirin_binary", "antihtn_binary",
+  "dm_meds_binary"
+)
+
+# Labels
+labels_list <- list(
+  age_at_index ~ "Age at index (years)",
+  gender ~ "Female sex",
+  bmi_clean ~ "Body mass index (kg/m²)",
+  ever_smoker ~ "Ever smoker",
+  baseline_gfr ~ "Baseline eGFR (mL/min/1.73m²)",
+  diabetes ~ "Diabetes mellitus",
+  hypertension ~ "Hypertension",
+  hydroxy_binary ~ "Hydroxychloroquine",
+  aza_binary ~ "Azathioprine",
+  mmf_binary ~ "Mycophenolate mofetil",
+  mtx_binary ~ "Methotrexate",
+  pred_binary ~ "Prednisone",
+  biologics_binary ~ "Biologics (rituximab or belimumab)",
+  calcineurin_binary ~ "Calcineurin inhibitors",
+  raas_binary ~ "RAAS inhibitors",
+  statins_binary ~ "Statins",
+  aspirin_binary ~ "Aspirin",
+  antihtn_binary ~ "Antihypertensives (BB/CCB/diuretics)",
+  dm_meds_binary ~ "Diabetes medications"
+)
+
+# Create table
+table1 <- table1_data %>%
+  select(lupus_group, all_of(table1_vars)) %>%
+  tbl_summary(
+    by = lupus_group,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    label = labels_list,
+    missing = "no"
+  ) %>%
+  add_n() %>%
+  add_difference(everything() ~ "smd") %>%
+  add_p(
+    test = list(all_continuous() ~ "t.test")
+  ) %>%
+  modify_column_hide(ci)
+
+cat("✓ Table 1 created\n\n")
+print(table1)
+
+# ----------------------------------------------------------------------------
+# Save to Word document
+# ----------------------------------------------------------------------------
+
+cat("Saving Table 1...\n")
+
+ft <- table1 %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc <- read_docx() %>%
+  body_add_par("Table 1: Baseline Characteristics", style = "heading 1") %>%
+  body_add_par(
+    paste0(
+      "Data are presented as mean (SD) for continuous variables and n (%) for categorical variables. ",
+      "SMD = standardized mean difference. ",
+      "Total cohort: ", nrow(table1_data),
+      " (", sum(table1_data$Lupus == 1), " lupus, ",
+      sum(table1_data$Lupus == 0), " controls)."
+    ),
+    style = "Normal"
+  ) %>%
+  body_add_flextable(ft)
+
+print(doc, target = "Table1_Baseline_Characteristics.docx")
+
+cat("✓ Table 1 saved: Table1_Baseline_Characteristics.docx\n\n")
+
+# IMPORTANT: Add lupus_group back to main cohort for Chunk 9
+cohort <- cohort %>%
+  mutate(lupus_group = factor(Lupus, levels = c(0, 1), labels = c("Control", "Lupus")))
+
+cat("✓ lupus_group added to cohort for downstream analyses\n\n")
+
+cat("✓ Chunk 8 complete\n\n")
+```
+
+
+
+
+
+
+
+
+
+
+
+# CHUNK 9: Outcomes Summary and Cox Regression (Prognostic Study)
+```{r}
+# ============================================================================
+# CHUNK 9 (CORRECTED): Outcomes Summary and Cox Regression
+# ============================================================================
+
+cat("\n=== CHUNK 9: Outcomes Summary and Cox Regression ===\n\n")
+
+library(survival)
+library(broom)
+library(dplyr)
+library(gtsummary)
+library(flextable)
+library(officer)
+
+# ============================================================================
+# PART A: Descriptive Outcomes Table
+# ============================================================================
+
+cat("=== PART A: DESCRIPTIVE OUTCOMES TABLE ===\n\n")
+
+outcomes_data <- cohort
+
+cat("Sample size:", nrow(outcomes_data), "\n")
+cat("  Lupus:", sum(outcomes_data$Lupus == 1), "\n")
+cat("  Control:", sum(outcomes_data$Lupus == 0), "\n\n")
+
+# Create descriptive table
+outcomes_table_desc <- outcomes_data %>%
+  select(
+    lupus_group,
+    ckd_gfr_event,
+    ckd_sensitivity_event,
+    eskd_event,
+    mace_event,
+    death_event
+  ) %>%
+  tbl_summary(
+    by = lupus_group,
+    missing = "no",
+    statistic = list(all_categorical() ~ "{n} ({p}%)"),
+    type = list(
+      ckd_gfr_event ~ "categorical",
+      ckd_sensitivity_event ~ "categorical",
+      eskd_event ~ "categorical",
+      mace_event ~ "categorical",
+      death_event ~ "categorical"
+    ),
+    value = list(
+      ckd_gfr_event ~ "1",
+      ckd_sensitivity_event ~ "1",
+      eskd_event ~ "1",
+      mace_event ~ "1",
+      death_event ~ "1"
+    ),
+    label = list(
+      ckd_gfr_event ~ "CKD (GFR <60) - PRIMARY",
+      ckd_sensitivity_event ~ "CKD (GFR <60 AND Protein >500) - SENSITIVITY",
+      eskd_event ~ "ESKD",
+      mace_event ~ "MACE",
+      death_event ~ "All-Cause Mortality"
+    )
+  ) %>%
+  add_n() %>%
+  add_p() %>%
+  modify_header(label ~ "**Outcome**") %>%
+  modify_caption("**Table 2A: Outcomes Summary**")
+
+cat("✓ Table 2A created\n\n")
+print(outcomes_table_desc)
+
+# Save
+ft_desc <- outcomes_table_desc %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_desc <- read_docx() %>%
+  body_add_par("Table 2A: Outcomes Summary", style = "heading 1") %>%
+  body_add_par("Data are presented as n (%).", style = "Normal") %>%
+  body_add_flextable(ft_desc)
+
+print(doc_desc, target = "Table2A_Outcomes_Descriptive.docx")
+cat("✓ Table 2A saved\n\n")
+
+# ============================================================================
+# PART B: PRIMARY ANALYSIS
+# ============================================================================
+
+cat("=== PART B: PRIMARY ANALYSIS ===\n\n")
+
+# CORRECTED covariates - using ACTUAL variable names
+covariates <- c("gender", "age_at_index", "baseline_gfr", "bmi_first_community_bmi",
+                "ever_smoker", "diabetes_diagnosis", "hypertension_diagnosis")
+
+cat("Covariates:", paste(covariates, collapse = ", "), "\n\n")
+
+# CKD PRIMARY
+cat("Model 1: CKD (GFR <60)...\n")
+cox_ckd_crude <- coxph(Surv(ckd_gfr_followup_years, ckd_gfr_status) ~ Lupus, data = outcomes_data)
+cox_ckd_adj <- coxph(as.formula(paste("Surv(ckd_gfr_followup_years, ckd_gfr_status) ~ Lupus +", 
+                                      paste(covariates, collapse = " + "))), data = outcomes_data)
+cat("  Crude HR:", sprintf("%.2f (%.2f-%.2f)\n", exp(coef(cox_ckd_crude)), 
+                           exp(confint(cox_ckd_crude)[1]), exp(confint(cox_ckd_crude)[2])))
+cat("  Adjusted HR:", sprintf("%.2f (%.2f-%.2f)\n\n", exp(coef(cox_ckd_adj)["Lupus"]),
+                              exp(confint(cox_ckd_adj)["Lupus",1]), exp(confint(cox_ckd_adj)["Lupus",2])))
+
+# ESKD
+cat("Model 2: ESKD...\n")
+cox_eskd_crude <- coxph(Surv(eskd_followup_years, eskd_status) ~ Lupus, data = outcomes_data)
+cox_eskd_adj <- coxph(as.formula(paste("Surv(eskd_followup_years, eskd_status) ~ Lupus +", 
+                                       paste(covariates, collapse = " + "))), data = outcomes_data)
+cat("  Crude HR:", sprintf("%.2f (%.2f-%.2f)\n", exp(coef(cox_eskd_crude)),
+                           exp(confint(cox_eskd_crude)[1]), exp(confint(cox_eskd_crude)[2])))
+cat("  Adjusted HR:", sprintf("%.2f (%.2f-%.2f)\n\n", exp(coef(cox_eskd_adj)["Lupus"]),
+                              exp(confint(cox_eskd_adj)["Lupus",1]), exp(confint(cox_eskd_adj)["Lupus",2])))
+
+# MACE
+cat("Model 3: MACE...\n")
+cox_mace_crude <- coxph(Surv(mace_followup_years, mace_status) ~ Lupus, data = outcomes_data)
+cox_mace_adj <- coxph(as.formula(paste("Surv(mace_followup_years, mace_status) ~ Lupus +",
+                                       paste(covariates, collapse = " + "))), data = outcomes_data)
+cat("  Crude HR:", sprintf("%.2f (%.2f-%.2f)\n", exp(coef(cox_mace_crude)),
+                           exp(confint(cox_mace_crude)[1]), exp(confint(cox_mace_crude)[2])))
+cat("  Adjusted HR:", sprintf("%.2f (%.2f-%.2f)\n\n", exp(coef(cox_mace_adj)["Lupus"]),
+                              exp(confint(cox_mace_adj)["Lupus",1]), exp(confint(cox_mace_adj)["Lupus",2])))
+
+# Mortality
+cat("Model 4: Mortality...\n")
+cox_death_crude <- coxph(Surv(death_followup_years, death_status) ~ Lupus, data = outcomes_data)
+cox_death_adj <- coxph(as.formula(paste("Surv(death_followup_years, death_status) ~ Lupus +",
+                                        paste(covariates, collapse = " + "))), data = outcomes_data)
+cat("  Crude HR:", sprintf("%.2f (%.2f-%.2f)\n", exp(coef(cox_death_crude)),
+                           exp(confint(cox_death_crude)[1]), exp(confint(cox_death_crude)[2])))
+cat("  Adjusted HR:", sprintf("%.2f (%.2f-%.2f)\n\n", exp(coef(cox_death_adj)["Lupus"]),
+                              exp(confint(cox_death_adj)["Lupus",1]), exp(confint(cox_death_adj)["Lupus",2])))
+
+# Create table
+tbl_crude_ckd <- tbl_regression(cox_ckd_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "CKD (GFR <60)"))
+tbl_crude_eskd <- tbl_regression(cox_eskd_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "ESKD"))
+tbl_crude_mace <- tbl_regression(cox_mace_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "MACE"))
+tbl_crude_death <- tbl_regression(cox_death_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "Mortality"))
+
+cox_table_crude <- tbl_stack(tbls = list(tbl_crude_ckd, tbl_crude_eskd, tbl_crude_mace, tbl_crude_death)) %>%
+  modify_header(label ~ "**Outcome**", estimate ~ "**HR (95% CI)**")
+
+tbl_adj_ckd <- tbl_regression(cox_ckd_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "CKD (GFR <60)"))
+tbl_adj_eskd <- tbl_regression(cox_eskd_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "ESKD"))
+tbl_adj_mace <- tbl_regression(cox_mace_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "MACE"))
+tbl_adj_death <- tbl_regression(cox_death_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "Mortality"))
+
+cox_table_adj <- tbl_stack(tbls = list(tbl_adj_ckd, tbl_adj_eskd, tbl_adj_mace, tbl_adj_death)) %>%
+  modify_header(label ~ "**Outcome**", estimate ~ "**HR (95% CI)**")
+
+cox_table_primary <- tbl_merge(tbls = list(cox_table_crude, cox_table_adj),
+                                tab_spanner = c("**Unadjusted**", "**Adjusted**")) %>%
+  modify_caption("**Table 2B: Primary Analysis**")
+
+print(cox_table_primary)
+
+ft_cox_primary <- cox_table_primary %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_cox_primary <- read_docx() %>%
+  body_add_par("Table 2B: Primary Analysis", style = "heading 1") %>%
+  body_add_flextable(ft_cox_primary)
+
+print(doc_cox_primary, target = "Table2B_Cox_Primary.docx")
+cat("✓ Table 2B saved\n\n")
+
+# ============================================================================
+# PART C: SENSITIVITY ANALYSIS
+# ============================================================================
+
+cat("=== PART C: SENSITIVITY ANALYSIS ===\n\n")
+
+cox_sensitivity_crude <- coxph(Surv(ckd_sensitivity_followup_years, ckd_sensitivity_status) ~ Lupus, data = outcomes_data)
+cox_sensitivity_adj <- coxph(as.formula(paste("Surv(ckd_sensitivity_followup_years, ckd_sensitivity_status) ~ Lupus +",
+                                              paste(covariates, collapse = " + "))), data = outcomes_data)
+
+cat("CKD (GFR AND Protein):\n")
+cat("  Crude HR:", sprintf("%.2f (%.2f-%.2f)\n", exp(coef(cox_sensitivity_crude)),
+                           exp(confint(cox_sensitivity_crude)[1]), exp(confint(cox_sensitivity_crude)[2])))
+cat("  Adjusted HR:", sprintf("%.2f (%.2f-%.2f)\n\n", exp(coef(cox_sensitivity_adj)["Lupus"]),
+                              exp(confint(cox_sensitivity_adj)["Lupus",1]), exp(confint(cox_sensitivity_adj)["Lupus",2])))
+
+tbl_sens_crude_ckd <- tbl_regression(cox_sensitivity_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "CKD (GFR AND Protein)"))
+tbl_sens_crude_eskd <- tbl_regression(cox_eskd_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "ESKD"))
+tbl_sens_crude_mace <- tbl_regression(cox_mace_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "MACE"))
+tbl_sens_crude_death <- tbl_regression(cox_death_crude, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "Mortality"))
+
+cox_table_sens_crude <- tbl_stack(tbls = list(tbl_sens_crude_ckd, tbl_sens_crude_eskd, tbl_sens_crude_mace, tbl_sens_crude_death)) %>%
+  modify_header(label ~ "**Outcome**", estimate ~ "**HR (95% CI)**")
+
+tbl_sens_adj_ckd <- tbl_regression(cox_sensitivity_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "CKD (GFR AND Protein)"))
+tbl_sens_adj_eskd <- tbl_regression(cox_eskd_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "ESKD"))
+tbl_sens_adj_mace <- tbl_regression(cox_mace_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "MACE"))
+tbl_sens_adj_death <- tbl_regression(cox_death_adj, exponentiate = TRUE, include = "Lupus") %>%
+  modify_table_body(~.x %>% mutate(label = "Mortality"))
+
+cox_table_sens_adj <- tbl_stack(tbls = list(tbl_sens_adj_ckd, tbl_sens_adj_eskd, tbl_sens_adj_mace, tbl_sens_adj_death)) %>%
+  modify_header(label ~ "**Outcome**", estimate ~ "**HR (95% CI)**")
+
+cox_table_sensitivity <- tbl_merge(tbls = list(cox_table_sens_crude, cox_table_sens_adj),
+                                    tab_spanner = c("**Unadjusted**", "**Adjusted**")) %>%
+  modify_caption("**Table 2C: Sensitivity Analysis**")
+
+print(cox_table_sensitivity)
+
+ft_cox_sens <- cox_table_sensitivity %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_cox_sens <- read_docx() %>%
+  body_add_par("Table 2C: Sensitivity Analysis", style = "heading 1") %>%
+  body_add_flextable(ft_cox_sens)
+
+print(doc_cox_sens, target = "Table2C_Cox_Sensitivity.docx")
+cat("✓ Table 2C saved\n\n")
+
+cat("\n✓ CHUNK 9 COMPLETE!\n\n")
+```
+
+
+# CHUNCK 9A sup analysis of multivar 
+```{r}
+# ============================================================================
+# CHUNK 9A (FIXED): Detailed Multivariable Tables
+# ============================================================================
+
+cat("\n=== CHUNK 9A: Detailed Multivariable Tables ===\n\n")
+
+library(survival)
+library(gtsummary)
+library(flextable)
+library(officer)
+library(dplyr)
+
+# ============================================================================
+# Define Unified Labels
+# ============================================================================
+
+cat("Setting up unified variable labels...\n\n")
+
+unified_labels <- list(
+  Lupus ~ "Lupus (vs Control)",
+  gender ~ "Female sex",
+  age_at_index ~ "Age at index (years)",
+  baseline_gfr ~ "Baseline eGFR (mL/min/1.73m²)",
+  bmi_first_community_bmi ~ "Body mass index (kg/m²)",
+  ever_smoker ~ "Ever smoker",
+  diabetes_diagnosis ~ "Diabetes mellitus",
+  hypertension_diagnosis ~ "Hypertension"
+)
+
+# ============================================================================
+# PART A: CKD (GFR <60) - PRIMARY - DETAILED
+# ============================================================================
+
+cat("=== Table 3A: CKD (GFR <60) - Multivariable Model ===\n\n")
+
+cox_ckd_full <- coxph(
+  Surv(ckd_gfr_followup_years, ckd_gfr_status) ~ Lupus + gender + age_at_index + 
+    baseline_gfr + bmi_first_community_bmi + ever_smoker + 
+    diabetes_diagnosis + hypertension_diagnosis,
+  data = cohort
+)
+
+table_ckd_full <- tbl_regression(
+  cox_ckd_full,
+  exponentiate = TRUE,
+  label = unified_labels
+) %>%
+  add_n(location = "level") %>%
+  add_nevent(location = "level") %>%
+  bold_p(t = 0.05) %>%
+  bold_labels() %>%
+  modify_header(
+    label = "**Variable**",
+    estimate = "**HR**",
+    ci = "**95% CI**",
+    p.value = "**P-value**"
+  ) %>%
+  modify_caption("**Table 3A: Multivariable Cox Regression - CKD (GFR <60)**")
+
+cat("✓ Table 3A created\n\n")
+print(table_ckd_full)
+
+# Save
+ft_ckd <- table_ckd_full %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_ckd <- read_docx() %>%
+  body_add_par("Table 3A: Multivariable Cox Regression - CKD (GFR <60)", style = "heading 1") %>%
+  body_add_par(
+    paste0(
+      "Multivariable Cox proportional hazards model. ",
+      "HR = Hazard Ratio; CI = Confidence Interval. ",
+      "N = ", nrow(cohort), "; Events = ", sum(cohort$ckd_gfr_event), "."
+    ),
+    style = "Normal"
+  ) %>%
+  body_add_flextable(ft_ckd)
+
+print(doc_ckd, target = "Table3A_Multivariable_CKD.docx")
+cat("✓ Saved: Table3A_Multivariable_CKD.docx\n\n")
+
+# ============================================================================
+# PART B: ESKD - DETAILED
+# ============================================================================
+
+cat("=== Table 3B: ESKD - Multivariable Model ===\n\n")
+
+cox_eskd_full <- coxph(
+  Surv(eskd_followup_years, eskd_status) ~ Lupus + gender + age_at_index + 
+    baseline_gfr + bmi_first_community_bmi + ever_smoker + 
+    diabetes_diagnosis + hypertension_diagnosis,
+  data = cohort
+)
+
+table_eskd_full <- tbl_regression(
+  cox_eskd_full,
+  exponentiate = TRUE,
+  label = unified_labels
+) %>%
+  add_n(location = "level") %>%
+  add_nevent(location = "level") %>%
+  bold_p(t = 0.05) %>%
+  bold_labels() %>%
+  modify_header(
+    label = "**Variable**",
+    estimate = "**HR**",
+    ci = "**95% CI**",
+    p.value = "**P-value**"
+  ) %>%
+  modify_caption("**Table 3B: Multivariable Cox Regression - ESKD**")
+
+cat("✓ Table 3B created\n\n")
+print(table_eskd_full)
+
+# Save
+ft_eskd <- table_eskd_full %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_eskd <- read_docx() %>%
+  body_add_par("Table 3B: Multivariable Cox Regression - ESKD", style = "heading 1") %>%
+  body_add_par(
+    paste0(
+      "Multivariable Cox proportional hazards model. ",
+      "HR = Hazard Ratio; CI = Confidence Interval. ",
+      "N = ", nrow(cohort), "; Events = ", sum(cohort$eskd_event), "."
+    ),
+    style = "Normal"
+  ) %>%
+  body_add_flextable(ft_eskd)
+
+print(doc_eskd, target = "Table3B_Multivariable_ESKD.docx")
+cat("✓ Saved: Table3B_Multivariable_ESKD.docx\n\n")
+
+# ============================================================================
+# PART C: MACE - DETAILED
+# ============================================================================
+
+cat("=== Table 3C: MACE - Multivariable Model ===\n\n")
+
+cox_mace_full <- coxph(
+  Surv(mace_followup_years, mace_status) ~ Lupus + gender + age_at_index + 
+    baseline_gfr + bmi_first_community_bmi + ever_smoker + 
+    diabetes_diagnosis + hypertension_diagnosis,
+  data = cohort
+)
+
+table_mace_full <- tbl_regression(
+  cox_mace_full,
+  exponentiate = TRUE,
+  label = unified_labels
+) %>%
+  add_n(location = "level") %>%
+  add_nevent(location = "level") %>%
+  bold_p(t = 0.05) %>%
+  bold_labels() %>%
+  modify_header(
+    label = "**Variable**",
+    estimate = "**HR**",
+    ci = "**95% CI**",
+    p.value = "**P-value**"
+  ) %>%
+  modify_caption("**Table 3C: Multivariable Cox Regression - MACE**")
+
+cat("✓ Table 3C created\n\n")
+print(table_mace_full)
+
+# Save
+ft_mace <- table_mace_full %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_mace <- read_docx() %>%
+  body_add_par("Table 3C: Multivariable Cox Regression - MACE", style = "heading 1") %>%
+  body_add_par(
+    paste0(
+      "Multivariable Cox proportional hazards model. ",
+      "HR = Hazard Ratio; CI = Confidence Interval. ",
+      "N = ", nrow(cohort), "; Events = ", sum(cohort$mace_event), "."
+    ),
+    style = "Normal"
+  ) %>%
+  body_add_flextable(ft_mace)
+
+print(doc_mace, target = "Table3C_Multivariable_MACE.docx")
+cat("✓ Saved: Table3C_Multivariable_MACE.docx\n\n")
+
+# ============================================================================
+# PART D: ALL-CAUSE MORTALITY - DETAILED
+# ============================================================================
+
+cat("=== Table 3D: All-Cause Mortality - Multivariable Model ===\n\n")
+
+cox_death_full <- coxph(
+  Surv(death_followup_years, death_status) ~ Lupus + gender + age_at_index + 
+    baseline_gfr + bmi_first_community_bmi + ever_smoker + 
+    diabetes_diagnosis + hypertension_diagnosis,
+  data = cohort
+)
+
+table_death_full <- tbl_regression(
+  cox_death_full,
+  exponentiate = TRUE,
+  label = unified_labels
+) %>%
+  add_n(location = "level") %>%
+  add_nevent(location = "level") %>%
+  bold_p(t = 0.05) %>%
+  bold_labels() %>%
+  modify_header(
+    label = "**Variable**",
+    estimate = "**HR**",
+    ci = "**95% CI**",
+    p.value = "**P-value**"
+  ) %>%
+  modify_caption("**Table 3D: Multivariable Cox Regression - All-Cause Mortality**")
+
+cat("✓ Table 3D created\n\n")
+print(table_death_full)
+
+# Save
+ft_death <- table_death_full %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_death <- read_docx() %>%
+  body_add_par("Table 3D: Multivariable Cox Regression - All-Cause Mortality", style = "heading 1") %>%
+  body_add_par(
+    paste0(
+      "Multivariable Cox proportional hazards model. ",
+      "HR = Hazard Ratio; CI = Confidence Interval. ",
+      "N = ", nrow(cohort), "; Events = ", sum(cohort$death_event), "."
+    ),
+    style = "Normal"
+  ) %>%
+  body_add_flextable(ft_death)
+
+print(doc_death, target = "Table3D_Multivariable_Mortality.docx")
+cat("✓ Saved: Table3D_Multivariable_Mortality.docx\n\n")
+
+# ============================================================================
+# PART E: SENSITIVITY - CKD (GFR AND Protein) - DETAILED
+# ============================================================================
+
+cat("=== Table 3E: CKD (GFR AND Protein) - Multivariable Model ===\n\n")
+
+cox_sensitivity_full <- coxph(
+  Surv(ckd_sensitivity_followup_years, ckd_sensitivity_status) ~ Lupus + gender + age_at_index + 
+    baseline_gfr + bmi_first_community_bmi + ever_smoker + 
+    diabetes_diagnosis + hypertension_diagnosis,
+  data = cohort
+)
+
+table_sensitivity_full <- tbl_regression(
+  cox_sensitivity_full,
+  exponentiate = TRUE,
+  label = unified_labels
+) %>%
+  add_n(location = "level") %>%
+  add_nevent(location = "level") %>%
+  bold_p(t = 0.05) %>%
+  bold_labels() %>%
+  modify_header(
+    label = "**Variable**",
+    estimate = "**HR**",
+    ci = "**95% CI**",
+    p.value = "**P-value**"
+  ) %>%
+  modify_caption("**Table 3E: Multivariable Cox Regression - CKD (GFR AND Proteinuria)**")
+
+cat("✓ Table 3E created\n\n")
+print(table_sensitivity_full)
+
+# Save
+ft_sensitivity <- table_sensitivity_full %>%
+  as_flex_table() %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  autofit()
+
+doc_sensitivity <- read_docx() %>%
+  body_add_par("Table 3E: Multivariable Cox Regression - CKD (GFR AND Proteinuria)", style = "heading 1") %>%
+  body_add_par(
+    paste0(
+      "Multivariable Cox proportional hazards model (sensitivity definition). ",
+      "CKD = BOTH GFR <60 (confirmed) AND Proteinuria >500 mg/g. ",
+      "HR = Hazard Ratio; CI = Confidence Interval. ",
+      "N = ", nrow(cohort), "; Events = ", sum(cohort$ckd_sensitivity_event), "."
+    ),
+    style = "Normal"
+  ) %>%
+  body_add_flextable(ft_sensitivity)
+
+print(doc_sensitivity, target = "Table3E_Multivariable_CKD_Sensitivity.docx")
+cat("✓ Saved: Table3E_Multivariable_CKD_Sensitivity.docx\n\n")
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("✓ CHUNK 9A COMPLETE!\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+cat("FILES CREATED:\n")
+cat("  1. Table3A_Multivariable_CKD.docx\n")
+cat("  2. Table3B_Multivariable_ESKD.docx\n")
+cat("  3. Table3C_Multivariable_MACE.docx\n")
+cat("  4. Table3D_Multivariable_Mortality.docx\n")
+cat("  5. Table3E_Multivariable_CKD_Sensitivity.docx\n\n")
+
+cat("✓ Chunk 9A complete\n\n")
+```
+
+
+
+
+
+
+# CHUNK 10: Kaplan-Meier Survival Curves (JAMA Style)
+
+
+```{r}
+# ============================================================================
+# PART E: COMBINE ALL PLOTS (FIXED)
+# ============================================================================
+
+cat("=== Combining all KM plots ===\n\n")
+
+# Extract the FULL survminer objects (plot + table combined)
+# survminer creates a gtable that already has plot + risk table together
+
+# Method 1: Use arrange_ggsurvplots from survminer (RECOMMENDED)
+library(survminer)
+
+combined_km <- arrange_ggsurvplots(
+  list(km_ckd, km_eskd, km_mace, km_death),
+  nrow = 2,
+  ncol = 2,
+  print = FALSE
+)
+
+cat("✓ Combined plot created\n\n")
+
+# ============================================================================
+# PART F: SAVE PLOTS (FIXED)
+# ============================================================================
+
+cat("=== Saving plots ===\n\n")
+
+# Save individual plots (plot only, without risk table)
+ggsave(
+  filename = "Figure2A_KM_CKD.png",
+  plot = km_ckd$plot,
+  width = 8,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+cat("✓ Saved: Figure2A_KM_CKD.png\n")
+
+ggsave(
+  filename = "Figure2B_KM_ESKD.png",
+  plot = km_eskd$plot,
+  width = 8,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+cat("✓ Saved: Figure2B_KM_ESKD.png\n")
+
+ggsave(
+  filename = "Figure2C_KM_MACE.png",
+  plot = km_mace$plot,
+  width = 8,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+cat("✓ Saved: Figure2C_KM_MACE.png\n")
+
+ggsave(
+  filename = "Figure2D_KM_Mortality.png",
+  plot = km_death$plot,
+  width = 8,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+cat("✓ Saved: Figure2D_KM_Mortality.png\n\n")
+
+# Save combined plot using ggsave (WORKS NOW)
+ggsave(
+  filename = "Figure2_Combined_KM_All_Outcomes.png",
+  plot = combined_km,
+  width = 24,
+  height = 16,
+  dpi = 300,
+  bg = "white"
+)
+cat("✓ Saved: Figure2_Combined_KM_All_Outcomes.png\n\n")
+
+# Also save as PDF
+ggsave(
+  filename = "Figure2_Combined_KM_All_Outcomes.pdf",
+  plot = combined_km,
+  width = 24,
+  height = 16,
+  dpi = 300,
+  bg = "white"
+)
+cat("✓ Saved: Figure2_Combined_KM_All_Outcomes.pdf\n\n")
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("✓ CHUNK 10 COMPLETE!\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+cat("FILES CREATED:\n")
+cat("  Individual plots:\n")
+cat("    - Figure2A_KM_CKD.png\n")
+cat("    - Figure2B_KM_ESKD.png\n")
+cat("    - Figure2C_KM_MACE.png\n")
+cat("    - Figure2D_KM_Mortality.png\n\n")
+cat("  Combined plots:\n")
+cat("    - Figure2_Combined_KM_All_Outcomes.png (16\" x 16\", 300 dpi)\n")
+cat("    - Figure2_Combined_KM_All_Outcomes.pdf (16\" x 16\", 300 dpi)\n\n")
+
+cat("✓ Chunk 10 complete\n\n")
+```
+
+
+# CHUNK 11: Within-Group Risk Factor Analysis (CORRECTED - Capital Lupus)
+
+
+
+
+
+
+
+# CHUNK 15: Competing Risks Analysis - Death as Competing Event
+
+```{r}
+# ============================================================================
+# CHUNK 15: Competing Risks Analysis - Death as Competing Event
+# ============================================================================
+
+cat("\n=== CHUNK 15: Competing Risks Analysis ===\n\n")
+
+library(survival)
+library(cmprsk)
+library(dplyr)
+library(flextable)
+library(officer)
+
+# ============================================================================
+# STEP 1: Create Competing Risk Variables
+# ============================================================================
+
+cat("=== STEP 1: Creating Competing Risk Variables ===\n\n")
+
+cohort_cr <- cohort %>%
+  mutate(
+    # ----------------------------------------------------------------------------
+    # CKD (GFR <60) with death as competing risk
+    # ----------------------------------------------------------------------------
+    # Status: 0 = censored, 1 = CKD, 2 = death before CKD
+    ckd_cr_status = case_when(
+      ckd_gfr_status == 1 ~ 1,  # CKD occurred
+      death_status == 1 & (is.na(ckd_gfr_date) | death_date < ckd_gfr_date) ~ 2,  # Death before CKD
+      TRUE ~ 0  # Censored
+    ),
+    # Time in days (Fine-Gray requires numeric time)
+    ckd_cr_time = case_when(
+      ckd_gfr_status == 1 ~ as.numeric(difftime(ckd_gfr_date, index_date, units = "days")),
+      death_status == 1 & (is.na(ckd_gfr_date) | death_date < ckd_gfr_date) ~ 
+        as.numeric(difftime(death_date, index_date, units = "days")),
+      TRUE ~ as.numeric(difftime(end_followup_date, index_date, units = "days"))
+    ),
+    
+    # ----------------------------------------------------------------------------
+    # ESKD with death as competing risk
+    # ----------------------------------------------------------------------------
+    eskd_cr_status = case_when(
+      eskd_status == 1 ~ 1,
+      death_status == 1 & (is.na(eskd_date) | death_date < eskd_date) ~ 2,
+      TRUE ~ 0
+    ),
+    eskd_cr_time = case_when(
+      eskd_status == 1 ~ as.numeric(difftime(eskd_date, index_date, units = "days")),
+      death_status == 1 & (is.na(eskd_date) | death_date < eskd_date) ~ 
+        as.numeric(difftime(death_date, index_date, units = "days")),
+      TRUE ~ as.numeric(difftime(end_followup_date, index_date, units = "days"))
+    ),
+    
+    # ----------------------------------------------------------------------------
+    # MACE with death as competing risk
+    # ----------------------------------------------------------------------------
+    mace_cr_status = case_when(
+      mace_status == 1 ~ 1,
+      death_status == 1 & (is.na(mace_date) | death_date < mace_date) ~ 2,
+      TRUE ~ 0
+    ),
+    mace_cr_time = case_when(
+      mace_status == 1 ~ as.numeric(difftime(mace_date, index_date, units = "days")),
+      death_status == 1 & (is.na(mace_date) | death_date < mace_date) ~ 
+        as.numeric(difftime(death_date, index_date, units = "days")),
+      TRUE ~ as.numeric(difftime(end_followup_date, index_date, units = "days"))
+    )
+  )
+
+cat("✓ Competing risk variables created\n\n")
+
+# Summary of competing risk status
+cat("CKD competing risk status distribution:\n")
+print(table(cohort_cr$ckd_cr_status, cohort_cr$Lupus, 
+            dnn = c("Status", "Lupus")))
+cat("  0 = Censored, 1 = CKD, 2 = Death before CKD\n\n")
+
+cat("ESKD competing risk status distribution:\n")
+print(table(cohort_cr$eskd_cr_status, cohort_cr$Lupus))
+cat("  0 = Censored, 1 = ESKD, 2 = Death before ESKD\n\n")
+
+cat("MACE competing risk status distribution:\n")
+print(table(cohort_cr$mace_cr_status, cohort_cr$Lupus))
+cat("  0 = Censored, 1 = MACE, 2 = Death before MACE\n\n")
+
+# ============================================================================
+# STEP 2: Cause-Specific Cox Models (Death as Censoring)
+# ============================================================================
+
+cat("=== STEP 2: Cause-Specific Cox Models ===\n\n")
+
+# Function to fit cause-specific Cox model
+fit_cs_cox <- function(time_var, status_var, outcome_name) {
+  cat("Fitting cause-specific Cox for", outcome_name, "...\n")
+  
+  # Unadjusted
+  model_crude <- coxph(
+    as.formula(paste0("Surv(", time_var, " / 365.25, ", status_var, ") ~ Lupus")),
+    data = cohort_cr
+  )
+  
+  # Adjusted
+  covariates <- c("gender", "current_age", "baseline_gfr", "bmi_clean", 
+                  "ever_smoker", "diabetes_diagnosis", "hypertension_diagnosis")
+  
+  model_adj <- coxph(
+    as.formula(paste0("Surv(", time_var, " / 365.25, ", status_var, ") ~ Lupus + ",
+                     paste(covariates, collapse = " + "))),
+    data = cohort_cr
+  )
+  
+  # Extract results
+  crude_hr <- exp(coef(model_crude)["Lupus"])
+  crude_ci <- exp(confint(model_crude)["Lupus", ])
+  crude_p <- summary(model_crude)$coefficients["Lupus", "Pr(>|z|)"]
+  
+  adj_hr <- exp(coef(model_adj)["Lupus"])
+  adj_ci <- exp(confint(model_adj)["Lupus", ])
+  adj_p <- summary(model_adj)$coefficients["Lupus", "Pr(>|z|)"]
+  
+  return(list(
+    outcome = outcome_name,
+    crude_hr = crude_hr,
+    crude_ci_lower = crude_ci[1],
+    crude_ci_upper = crude_ci[2],
+    crude_p = crude_p,
+    adj_hr = adj_hr,
+    adj_ci_lower = adj_ci[1],
+    adj_ci_upper = adj_ci[2],
+    adj_p = adj_p
+  ))
+}
+
+# Fit cause-specific Cox models
+cs_ckd <- fit_cs_cox("ckd_cr_time", "ckd_gfr_status", "CKD (GFR <60)")
+cs_eskd <- fit_cs_cox("eskd_cr_time", "eskd_status", "ESKD")
+cs_mace <- fit_cs_cox("mace_cr_time", "mace_status", "MACE")
+
+# Mortality (no competing risk)
+cat("Fitting Cox for All-Cause Mortality...\n")
+death_crude <- coxph(
+  Surv(death_followup_years, death_status) ~ Lupus,
+  data = cohort_cr
+)
+death_adj <- coxph(
+  Surv(death_followup_years, death_status) ~ Lupus + gender + current_age + 
+    baseline_gfr + bmi_clean + ever_smoker + diabetes_diagnosis + hypertension_diagnosis,
+  data = cohort_cr
+)
+
+cs_death <- list(
+  outcome = "All-Cause Mortality",
+  crude_hr = exp(coef(death_crude)["Lupus"]),
+  crude_ci_lower = exp(confint(death_crude)["Lupus", 1]),
+  crude_ci_upper = exp(confint(death_crude)["Lupus", 2]),
+  crude_p = summary(death_crude)$coefficients["Lupus", "Pr(>|z|)"],
+  adj_hr = exp(coef(death_adj)["Lupus"]),
+  adj_ci_lower = exp(confint(death_adj)["Lupus", 1]),
+  adj_ci_upper = exp(confint(death_adj)["Lupus", 2]),
+  adj_p = summary(death_adj)$coefficients["Lupus", "Pr(>|z|)"]
+)
+
+cat("✓ Cause-specific Cox models fitted\n\n")
+
+# ============================================================================
+# STEP 3: Fine-Gray Subdistribution Hazard Models
+# ============================================================================
+
+cat("=== STEP 3: Fine-Gray Subdistribution Hazard Models ===\n\n")
+
+# Function to fit Fine-Gray model
+fit_fine_gray <- function(time_var, status_var, outcome_name) {
+  cat("Fitting Fine-Gray model for", outcome_name, "...\n")
+  
+  # Unadjusted Fine-Gray
+  fg_crude <- crr(
+    ftime = cohort_cr[[time_var]],
+    fstatus = cohort_cr[[status_var]],
+    cov1 = as.matrix(cohort_cr$Lupus),
+    failcode = 1,
+    cencode = 0
+  )
+  
+  # Adjusted Fine-Gray
+  # Prepare covariate matrix
+  cov_data <- cohort_cr %>%
+    mutate(
+      female = ifelse(gender == "Female", 1, 0),
+      smoker = as.numeric(ever_smoker),
+      diabetes = as.numeric(diabetes_diagnosis),
+      hypertension = as.numeric(hypertension_diagnosis)
+    ) %>%
+    select(Lupus, female, current_age, baseline_gfr, bmi_clean, 
+           smoker, diabetes, hypertension)
+  
+  # Remove rows with missing covariates
+  complete_rows <- complete.cases(cov_data)
+  cov_matrix <- as.matrix(cov_data[complete_rows, ])
+  
+  fg_adj <- crr(
+    ftime = cohort_cr[[time_var]][complete_rows],
+    fstatus = cohort_cr[[status_var]][complete_rows],
+    cov1 = cov_matrix,
+    failcode = 1,
+    cencode = 0
+  )
+  
+  # Extract results
+  crude_shr <- exp(fg_crude$coef[1])
+  crude_se <- sqrt(fg_crude$var[1, 1])
+  crude_ci <- exp(fg_crude$coef[1] + c(-1.96, 1.96) * crude_se)
+  crude_z <- fg_crude$coef[1] / crude_se
+  crude_p <- 2 * pnorm(-abs(crude_z))
+  
+  adj_shr <- exp(fg_adj$coef[1])
+  adj_se <- sqrt(fg_adj$var[1, 1])
+  adj_ci <- exp(fg_adj$coef[1] + c(-1.96, 1.96) * adj_se)
+  adj_z <- fg_adj$coef[1] / adj_se
+  adj_p <- 2 * pnorm(-abs(adj_z))
+  
+  return(list(
+    outcome = outcome_name,
+    crude_shr = crude_shr,
+    crude_ci_lower = crude_ci[1],
+    crude_ci_upper = crude_ci[2],
+    crude_p = crude_p,
+    adj_shr = adj_shr,
+    adj_ci_lower = adj_ci[1],
+    adj_ci_upper = adj_ci[2],
+    adj_p = adj_p
+  ))
+}
+
+# Fit Fine-Gray models
+fg_ckd <- fit_fine_gray("ckd_cr_time", "ckd_cr_status", "CKD (GFR <60)")
+fg_eskd <- fit_fine_gray("eskd_cr_time", "eskd_cr_status", "ESKD")
+fg_mace <- fit_fine_gray("mace_cr_time", "mace_cr_status", "MACE")
+
+cat("✓ Fine-Gray models fitted\n\n")
+
+# ============================================================================
+# STEP 4: Combine Results into Summary Table
+# ============================================================================
+
+cat("=== STEP 4: Creating Summary Table ===\n\n")
+
+# Combine all results
+results_combined <- bind_rows(
+  as.data.frame(cs_ckd),
+  as.data.frame(cs_eskd),
+  as.data.frame(cs_mace),
+  as.data.frame(cs_death)
+) %>%
+  mutate(
+    crude_cs_hr_ci = sprintf("%.2f (%.2f-%.2f)", crude_hr, crude_ci_lower, crude_ci_upper),
+    crude_cs_p = ifelse(crude_p < 0.001, "<0.001", sprintf("%.3f", crude_p)),
+    adj_cs_hr_ci = sprintf("%.2f (%.2f-%.2f)", adj_hr, adj_ci_lower, adj_ci_upper),
+    adj_cs_p = ifelse(adj_p < 0.001, "<0.001", sprintf("%.3f", adj_p))
+  )
+
+# Add Fine-Gray results
+fg_results <- bind_rows(
+  as.data.frame(fg_ckd),
+  as.data.frame(fg_eskd),
+  as.data.frame(fg_mace)
+) %>%
+  mutate(
+    crude_fg_shr_ci = sprintf("%.2f (%.2f-%.2f)", crude_shr, crude_ci_lower, crude_ci_upper),
+    crude_fg_p = ifelse(crude_p < 0.001, "<0.001", sprintf("%.3f", crude_p)),
+    adj_fg_shr_ci = sprintf("%.2f (%.2f-%.2f)", adj_shr, adj_ci_lower, adj_ci_upper),
+    adj_fg_p = ifelse(adj_p < 0.001, "<0.001", sprintf("%.3f", adj_p))
+  ) %>%
+  select(outcome, crude_fg_shr_ci, crude_fg_p, adj_fg_shr_ci, adj_fg_p)
+
+# Merge
+final_table <- results_combined %>%
+  select(outcome, crude_cs_hr_ci, crude_cs_p, adj_cs_hr_ci, adj_cs_p) %>%
+  left_join(fg_results, by = "outcome") %>%
+  mutate(
+    # Add N/A for mortality (no competing risk model)
+    crude_fg_shr_ci = ifelse(outcome == "All-Cause Mortality", "N/A", crude_fg_shr_ci),
+    crude_fg_p = ifelse(outcome == "All-Cause Mortality", "N/A", crude_fg_p),
+    adj_fg_shr_ci = ifelse(outcome == "All-Cause Mortality", "N/A", adj_fg_shr_ci),
+    adj_fg_p = ifelse(outcome == "All-Cause Mortality", "N/A", adj_fg_p)
+  )
+
+cat("COMPETING RISKS ANALYSIS RESULTS:\n\n")
+print(final_table)
+cat("\n")
+
+# ============================================================================
+# STEP 5: Create Word Document with Formatted Table
+# ============================================================================
+
+cat("=== STEP 5: Creating Word Document ===\n\n")
+
+# Create flextable
+ft_cr <- final_table %>%
+  flextable() %>%
+  set_header_labels(
+    outcome = "Outcome",
+    crude_cs_hr_ci = "CS-HR (95% CI)",
+    crude_cs_p = "P-value",
+    adj_cs_hr_ci = "CS-HR (95% CI)",
+    adj_cs_p = "P-value",
+    crude_fg_shr_ci = "FG-SHR (95% CI)",
+    crude_fg_p = "P-value",
+    adj_fg_shr_ci = "FG-SHR (95% CI)",
+    adj_fg_p = "P-value"
+  ) %>%
+  add_header_row(
+    values = c("", "Unadjusted", "Unadjusted", "Adjusted", "Adjusted", 
+               "Unadjusted", "Unadjusted", "Adjusted", "Adjusted"),
+    colwidths = c(1, 2, 2, 2, 2)
+  ) %>%
+  add_header_row(
+    values = c("", "Cause-Specific Cox", "Cause-Specific Cox", 
+               "Fine-Gray", "Fine-Gray"),
+    colwidths = c(1, 2, 2, 2, 2)
+  ) %>%
+  fontsize(size = 10, part = "all") %>%
+  bold(part = "header") %>%
+  bg(bg = "#2C2C2C", part = "header") %>%
+  color(color = "white", part = "header") %>%
+  align(align = "center", part = "header") %>%
+  align(j = 1, align = "left", part = "body") %>%
+  align(j = 2:9, align = "center", part = "body") %>%
+  autofit() %>%
+  add_footer_lines(
+    "CS-HR = Cause-Specific Hazard Ratio; FG-SHR = Fine-Gray Subdistribution Hazard Ratio; CI = Confidence Interval"
+  ) %>%
+  add_footer_lines(
+    "Cause-specific models treat death as censoring. Fine-Gray models account for death as competing event."
+  ) %>%
+  add_footer_lines(
+    paste0(
+      "Adjusted models control for: gender, age, baseline eGFR, BMI, smoking status, diabetes, and hypertension. ",
+      "N = ", nrow(cohort_cr), " (Lupus: ", sum(cohort_cr$Lupus == 1), 
+      ", Control: ", sum(cohort_cr$Lupus == 0), ")."
+    )
+  )
+
+# Create Word document
+doc_cr <- read_docx() %>%
+  body_add_par("Table: Competing Risks Analysis - Lupus vs Control", 
+               style = "heading 1") %>%
+  body_add_par("", style = "Normal") %>%
+  body_add_par(
+    paste0(
+      "Comparison of cause-specific Cox regression and Fine-Gray competing risks models. ",
+      "Death was treated as a competing event for CKD, ESKD, and MACE outcomes. ",
+      "All-cause mortality is presented as reference (no competing event). ",
+      "Cause-specific hazard ratios (CS-HR) estimate the instantaneous risk among those still at risk, ",
+      "while subdistribution hazard ratios (FG-SHR) estimate the cumulative incidence in the presence of competing risks."
+    ),
+    style = "Normal"
+  ) %>%
+  body_add_par("", style = "Normal") %>%
+  body_add_flextable(ft_cr)
+
+print(doc_cr, target = "Table_Competing_Risks_2Group.docx")
+
+cat("✓ Table saved: Table_Competing_Risks_2Group.docx\n\n")
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("✓ CHUNK 15 COMPLETE!\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+cat("ANALYSIS SUMMARY:\n\n")
+
+cat("Competing Events Summary:\n")
+cat("  CKD events:", sum(cohort_cr$ckd_cr_status == 1), 
+    ", Deaths before CKD:", sum(cohort_cr$ckd_cr_status == 2), "\n")
+cat("  ESKD events:", sum(cohort_cr$eskd_cr_status == 1), 
+    ", Deaths before ESKD:", sum(cohort_cr$eskd_cr_status == 2), "\n")
+cat("  MACE events:", sum(cohort_cr$mace_cr_status == 1), 
+    ", Deaths before MACE:", sum(cohort_cr$mace_cr_status == 2), "\n\n")
+
+cat("FILES CREATED:\n")
+cat("  1. Table_Competing_Risks_2Group.docx\n\n")
+
+cat("KEY FINDINGS:\n")
+cat("  Compare CS-HR vs FG-SHR to assess impact of competing risks\n")
+cat("  Similar estimates suggest minimal bias from competing death events\n")
+cat("  Divergent estimates suggest death significantly competes with outcome\n\n")
+
+cat("✓ Chunk 15 complete\n\n")
+```
+# CHUNK 16: GFR and Proteinuria Trajectories Over Time
+
+```{r}
+# ============================================================================
+# CHUNK 16: GFR and Proteinuria Trajectories Over Time
+# ============================================================================
+
+cat("\n=== CHUNK 16: Trajectory Plots with Statistical Tables ===\n\n")
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(flextable)
+library(officer)
+
+# Standardized JAMA color palette
+STANDARD_COLORS_2GROUP <- c("#374E55", "#DF8F44")  # Control (teal), Lupus (orange)
+STANDARD_SHAPES_2GROUP <- c(16, 17)  # Circle, Triangle
+
+# ============================================================================
+# PART A: GFR TRAJECTORY (-1 to 5 years)
+# ============================================================================
+
+cat("=== PART A: GFR TRAJECTORY ===\n\n")
+
+if (!exists("GFR_FIRST_99")) {
+  cat("⚠ GFR_FIRST_99 not found - skipping GFR trajectory\n\n")
+  gfr_trajectory_summary <- NULL
+  gfr_stats_table <- NULL
+  
+} else {
+  
+  cat("Processing GFR trajectory data...\n")
+  
+  # Get cohort IDs with lupus status
+  cohort_ids <- cohort %>%
+    select(mdcinternalpatientid, patient_id, index_date, Lupus) %>%
+    mutate(lupus_group = factor(Lupus, levels = c(0, 1), labels = c("Control", "Lupus")))
+  
+  # Process GFR data
+  gfr_trajectory <- GFR_FIRST_99 %>%
+    inner_join(cohort_ids, by = "mdcinternalpatientid") %>%
+    mutate(
+      gfr_date = as.Date(gfr_start_date),
+      gfr_value = as.numeric(gfr_ckd_epi),
+      years_from_index = as.numeric(difftime(gfr_date, index_date, units = "days")) / 365.25,
+      time_window = round(years_from_index)
+    ) %>%
+    filter(!is.na(gfr_value)) %>%
+    filter(time_window >= -1 & time_window <= 5)  # Baseline at -1 year
+  
+  cat("  Total GFR measurements:", nrow(gfr_trajectory), "\n")
+  cat("  Time range:", min(gfr_trajectory$time_window), "to", 
+      max(gfr_trajectory$time_window), "years\n\n")
+  
+  # Calculate summary statistics by time window and group
+  cat("Calculating GFR summary statistics...\n")
+  
+  gfr_trajectory_summary <- gfr_trajectory %>%
+    group_by(lupus_group, time_window) %>%
+    summarise(
+      n = n_distinct(mdcinternalpatientid),
+      mean_gfr = mean(gfr_value, na.rm = TRUE),
+      se_gfr = sd(gfr_value, na.rm = TRUE) / sqrt(n()),
+      ci_lower = mean_gfr - 1.96 * se_gfr,
+      ci_upper = mean_gfr + 1.96 * se_gfr,
+      .groups = "drop"
+    )
+  
+  cat("✓ GFR summary calculated\n\n")
+  
+  # Statistical tests (t-test at each time point)
+  cat("Performing statistical tests (t-test)...\n")
+  
+  time_points <- sort(unique(gfr_trajectory$time_window))
+  
+  gfr_stats_list <- lapply(time_points, function(tp) {
+    data_tp <- gfr_trajectory %>%
+      filter(time_window == tp)
+    
+    control_values <- data_tp %>% filter(Lupus == 0) %>% pull(gfr_value)
+    lupus_values <- data_tp %>% filter(Lupus == 1) %>% pull(gfr_value)
+    
+    if (length(control_values) > 0 & length(lupus_values) > 0) {
+      test_result <- t.test(lupus_values, control_values)
+      
+      data.frame(
+        time_window = tp,
+        n_control = length(control_values),
+        n_lupus = length(lupus_values),
+        mean_control = mean(control_values),
+        mean_lupus = mean(lupus_values),
+        mean_diff = mean(lupus_values) - mean(control_values),
+        p_value = test_result$p.value,
+        test_statistic = test_result$statistic
+      )
+    } else {
+      NULL
+    }
+  })
+  
+  gfr_stats_table <- bind_rows(gfr_stats_list)
+  
+  cat("✓ Statistical tests complete\n\n")
+  
+  # Create GFR trajectory plot
+  cat("Creating GFR trajectory plot...\n")
+  
+  plot_gfr <- ggplot(gfr_trajectory_summary, aes(x = time_window, y = mean_gfr, 
+                                                   color = lupus_group, shape = lupus_group)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2, linewidth = 0.8) +
+    scale_color_manual(values = STANDARD_COLORS_2GROUP, name = "Group") +
+    scale_shape_manual(values = STANDARD_SHAPES_2GROUP, name = "Group") +
+    scale_x_continuous(breaks = -1:5, labels = c("-1 (Baseline)", "0", "1", "2", "3", "4", "5")) +
+    labs(
+      x = "Years from Index Date",
+      y = "Mean eGFR (mL/min/1.73m²)",
+      title = "GFR Trajectory: Lupus vs Control"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      panel.grid.minor = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  
+  cat("✓ GFR plot created\n\n")
+}
+
+# ============================================================================
+# PART B: PROTEINURIA TRAJECTORY (0 to 5 years, NO BASELINE)
+# ============================================================================
+
+cat("=== PART B: PROTEINURIA TRAJECTORY ===\n\n")
+
+if (!exists("PROTERIN_URINE_FIRST_99")) {
+  cat("⚠ PROTERIN_URINE_FIRST_99 not found - skipping proteinuria trajectory\n\n")
+  protein_trajectory_summary <- NULL
+  protein_stats_table <- NULL
+  
+} else {
+  
+  cat("Processing proteinuria trajectory data...\n")
+  
+  # Process proteinuria data (direct measurements only)
+  protein_trajectory <- PROTERIN_URINE_FIRST_99 %>%
+    inner_join(cohort_ids, by = "mdcinternalpatientid") %>%
+    mutate(
+      protein_date = as.Date(proteinuria_urine_sample_result_date),
+      protein_value_raw = as.numeric(proteinuria_urine_sample_result_as_number),
+      protein_unit = proteinuria_urine_sample_result_unit,
+      
+      # Standardize to mg/L
+      protein_mg_l = case_when(
+        protein_unit == "mg/L" ~ protein_value_raw,
+        protein_unit %in% c("mg/dL", "mg/dl") ~ protein_value_raw * 10,
+        protein_unit %in% c("g/L", "g/l") ~ protein_value_raw * 1000,
+        protein_unit %in% c("mg/24hr", "mg/24 hr", "mg/day") ~ protein_value_raw / 1.5,  # Approximate conversion
+        TRUE ~ NA_real_
+      ),
+      
+      years_from_index = as.numeric(difftime(protein_date, index_date, units = "days")) / 365.25,
+      time_window = round(years_from_index)
+    ) %>%
+    filter(!is.na(protein_mg_l)) %>%
+    filter(protein_mg_l > 0) %>%
+    filter(time_window >= 0 & time_window <= 5)  # NO BASELINE for proteinuria
+  
+  cat("  Total proteinuria measurements:", nrow(protein_trajectory), "\n")
+  cat("  Time range:", min(protein_trajectory$time_window), "to", 
+      max(protein_trajectory$time_window), "years\n\n")
+  
+  # Calculate summary statistics (MEDIAN and IQR for proteinuria)
+  cat("Calculating proteinuria summary statistics...\n")
+  
+  protein_trajectory_summary <- protein_trajectory %>%
+    group_by(lupus_group, time_window) %>%
+    summarise(
+      n = n_distinct(mdcinternalpatientid),
+      median_protein = median(protein_mg_l, na.rm = TRUE),
+      q25 = quantile(protein_mg_l, 0.25, na.rm = TRUE),
+      q75 = quantile(protein_mg_l, 0.75, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  cat("✓ Proteinuria summary calculated\n\n")
+  
+  # Statistical tests (Wilcoxon at each time point)
+  cat("Performing statistical tests (Wilcoxon)...\n")
+  
+  time_points_protein <- sort(unique(protein_trajectory$time_window))
+  
+  protein_stats_list <- lapply(time_points_protein, function(tp) {
+    data_tp <- protein_trajectory %>%
+      filter(time_window == tp)
+    
+    control_values <- data_tp %>% filter(Lupus == 0) %>% pull(protein_mg_l)
+    lupus_values <- data_tp %>% filter(Lupus == 1) %>% pull(protein_mg_l)
+    
+    if (length(control_values) > 0 & length(lupus_values) > 0) {
+      test_result <- wilcox.test(lupus_values, control_values)
+      
+      data.frame(
+        time_window = tp,
+        n_control = length(control_values),
+        n_lupus = length(lupus_values),
+        median_control = median(control_values),
+        median_lupus = median(lupus_values),
+        p_value = test_result$p.value,
+        test_statistic = test_result$statistic
+      )
+    } else {
+      NULL
+    }
+  })
+  
+  protein_stats_table <- bind_rows(protein_stats_list)
+  
+  cat("✓ Statistical tests complete\n\n")
+  
+  # Create proteinuria trajectory plot
+  cat("Creating proteinuria trajectory plot...\n")
+  
+  plot_protein <- ggplot(protein_trajectory_summary, aes(x = time_window, y = median_protein, 
+                                                           color = lupus_group, shape = lupus_group)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = q25, ymax = q75), width = 0.2, linewidth = 0.8) +
+    scale_color_manual(values = STANDARD_COLORS_2GROUP, name = "Group") +
+    scale_shape_manual(values = STANDARD_SHAPES_2GROUP, name = "Group") +
+    scale_x_continuous(breaks = 0:5) +
+    scale_y_log10() +
+    labs(
+      x = "Years from Index Date",
+      y = "Median Urine Protein (mg/L, log scale)",
+      title = "Proteinuria Trajectory: Lupus vs Control"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      panel.grid.minor = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  
+  cat("✓ Proteinuria plot created\n\n")
+}
+
+# ============================================================================
+# PART C: Combine Plots and Save Figure
+# ============================================================================
+
+cat("=== PART C: Creating Combined Figure ===\n\n")
+
+if (!is.null(gfr_trajectory_summary) & !is.null(protein_trajectory_summary)) {
+  
+  library(gridExtra)
+  
+  combined_plot <- grid.arrange(
+    plot_gfr + theme(plot.margin = margin(10, 10, 10, 10)),
+    plot_protein + theme(plot.margin = margin(10, 10, 10, 10)),
+    nrow = 2,
+    top = grid::textGrob("Kidney Function Trajectories: Lupus vs Control", 
+                        gp = grid::gpar(fontsize = 14, fontface = "bold"))
+  )
+  
+  # Save as PDF
+  ggsave("Figure_GFR_Protein_Trajectories_2Group.pdf", 
+         combined_plot, width = 10, height = 12, units = "in")
+  
+  # Save as PNG
+  ggsave("Figure_GFR_Protein_Trajectories_2Group.png", 
+         combined_plot, width = 10, height = 12, units = "in", dpi = 300)
+  
+  cat("✓ Figure saved: Figure_GFR_Protein_Trajectories_2Group.pdf/.png\n\n")
+  
+} else {
+  cat("⚠ Cannot create combined figure - missing data\n\n")
+}
+
+# ============================================================================
+# PART D: Create Statistical Tables (Word Documents)
+# ============================================================================
+
+cat("=== PART D: Creating Statistical Tables ===\n\n")
+
+# ----------------------------------------------------------------------------
+# GFR Statistical Table
+# ----------------------------------------------------------------------------
+
+if (!is.null(gfr_stats_table)) {
+  
+  cat("Creating GFR statistical table...\n")
+  
+  gfr_stats_formatted <- gfr_stats_table %>%
+    mutate(
+      time_label = case_when(
+        time_window == -1 ~ "-1 (Baseline)",
+        TRUE ~ as.character(time_window)
+      ),
+      mean_control_fmt = sprintf("%.1f", mean_control),
+      mean_lupus_fmt = sprintf("%.1f", mean_lupus),
+      mean_diff_fmt = sprintf("%.1f", mean_diff),
+      p_value_fmt = ifelse(p_value < 0.001, "<0.001", sprintf("%.3f", p_value))
+    ) %>%
+    select(
+      Time = time_label,
+      N_Control = n_control,
+      N_Lupus = n_lupus,
+      Mean_Control = mean_control_fmt,
+      Mean_Lupus = mean_lupus_fmt,
+      Mean_Difference = mean_diff_fmt,
+      P_value = p_value_fmt
+    )
+  
+  ft_gfr <- gfr_stats_formatted %>%
+    flextable() %>%
+    set_header_labels(
+      Time = "Time Point\n(Years)",
+      N_Control = "N\n(Control)",
+      N_Lupus = "N\n(Lupus)",
+      Mean_Control = "Mean GFR\n(Control)",
+      Mean_Lupus = "Mean GFR\n(Lupus)",
+      Mean_Difference = "Mean Difference\n(Lupus - Control)",
+      P_value = "P-value"
+    ) %>%
+    fontsize(size = 10, part = "all") %>%
+    bold(part = "header") %>%
+    bg(bg = "#2C2C2C", part = "header") %>%
+    color(color = "white", part = "header") %>%
+    align(align = "center", part = "all") %>%
+    autofit() %>%
+    add_footer_lines("GFR = Glomerular Filtration Rate (mL/min/1.73m²)") %>%
+    add_footer_lines("Statistical test: Independent t-test at each time point") %>%
+    add_footer_lines("Time -1 represents baseline measurement (1 year before index date)")
+  
+  doc_gfr_stats <- read_docx() %>%
+    body_add_par("Table: GFR Trajectory Statistical Analysis", style = "heading 1") %>%
+    body_add_par("", style = "Normal") %>%
+    body_add_par(
+      "Mean eGFR values and statistical comparisons between lupus and control groups at each time point. Independent t-tests used to compare means.",
+      style = "Normal"
+    ) %>%
+    body_add_par("", style = "Normal") %>%
+    body_add_flextable(ft_gfr)
+  
+  print(doc_gfr_stats, target = "Table_GFR_Trajectory_Statistics.docx")
+  
+  cat("✓ GFR statistics table saved: Table_GFR_Trajectory_Statistics.docx\n\n")
+}
+
+# ----------------------------------------------------------------------------
+# Proteinuria Statistical Table
+# ----------------------------------------------------------------------------
+
+if (!is.null(protein_stats_table)) {
+  
+  cat("Creating proteinuria statistical table...\n")
+  
+  protein_stats_formatted <- protein_stats_table %>%
+    mutate(
+      time_label = as.character(time_window),
+      median_control_fmt = sprintf("%.1f", median_control),
+      median_lupus_fmt = sprintf("%.1f", median_lupus),
+      p_value_fmt = ifelse(p_value < 0.001, "<0.001", sprintf("%.3f", p_value))
+    ) %>%
+    select(
+      Time = time_label,
+      N_Control = n_control,
+      N_Lupus = n_lupus,
+      Median_Control = median_control_fmt,
+      Median_Lupus = median_lupus_fmt,
+      P_value = p_value_fmt
+    )
+  
+  ft_protein <- protein_stats_formatted %>%
+    flextable() %>%
+    set_header_labels(
+      Time = "Time Point\n(Years)",
+      N_Control = "N\n(Control)",
+      N_Lupus = "N\n(Lupus)",
+      Median_Control = "Median Protein\n(Control, mg/L)",
+      Median_Lupus = "Median Protein\n(Lupus, mg/L)",
+      P_value = "P-value"
+    ) %>%
+    fontsize(size = 10, part = "all") %>%
+    bold(part = "header") %>%
+    bg(bg = "#2C2C2C", part = "header") %>%
+    color(color = "white", part = "header") %>%
+    align(align = "center", part = "all") %>%
+    autofit() %>%
+    add_footer_lines("Urine protein concentration in mg/L (standardized from various units)") %>%
+    add_footer_lines("Statistical test: Wilcoxon rank-sum test at each time point") %>%
+    add_footer_lines("No baseline measurement included (proteinuria trajectory starts at year 0)")
+  
+  doc_protein_stats <- read_docx() %>%
+    body_add_par("Table: Proteinuria Trajectory Statistical Analysis", style = "heading 1") %>%
+    body_add_par("", style = "Normal") %>%
+    body_add_par(
+      "Median urine protein concentrations and statistical comparisons between lupus and control groups at each time point. Wilcoxon rank-sum tests used to compare distributions.",
+      style = "Normal"
+    ) %>%
+    body_add_par("", style = "Normal") %>%
+    body_add_flextable(ft_protein)
+  
+  print(doc_protein_stats, target = "Table_Protein_Trajectory_Statistics.docx")
+  
+  cat("✓ Proteinuria statistics table saved: Table_Protein_Trajectory_Statistics.docx\n\n")
+}
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("✓ CHUNK 16 COMPLETE!\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+cat("FILES CREATED:\n")
+cat("  1. Figure_GFR_Protein_Trajectories_2Group.pdf\n")
+cat("  2. Figure_GFR_Protein_Trajectories_2Group.png\n")
+cat("  3. Table_GFR_Trajectory_Statistics.docx\n")
+cat("  4. Table_Protein_Trajectory_Statistics.docx\n\n")
+
+if (!is.null(gfr_trajectory_summary)) {
+  cat("GFR TRAJECTORY SUMMARY:\n")
+  cat("  Time points:", paste(sort(unique(gfr_trajectory_summary$time_window)), collapse = ", "), "\n")
+  cat("  Total measurements:", nrow(gfr_trajectory), "\n\n")
+}
+
+if (!is.null(protein_trajectory_summary)) {
+  cat("PROTEINURIA TRAJECTORY SUMMARY:\n")
+  cat("  Time points:", paste(sort(unique(protein_trajectory_summary$time_window)), collapse = ", "), "\n")
+  cat("  Total measurements:", nrow(protein_trajectory), "\n\n")
+}
+
+cat("✓ Chunk 16 complete\n\n")
+```
+# CHUNK 13: Load Drug Dispensing Data for Time-Varying Analysis
+```{r}
+SGLT2_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48414][SGLT-2_FIRST_99][v-ruthsm_nat][qe_35411][20260115_184823759_338].csv",  locale = locale(encoding = "UTF-8"))
+ACE_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48414][ACE_FIRST_99][v-ruthsm_nat][qe_35411][20260115_184823767_8114].csv",  locale = locale(encoding = "UTF-8"))
+ARB_FIRST_99 <- read_csv("//10.100.117.220/Projects$/R02-Darom/R02-Itamar Ben Shitrit/Lupus CKD/data/itamarIftach- LupusSGLT2 Second step15.01/[48414][ARBS_FIRST_99][v-ruthsm_nat][qe_35411][20260115_184823773_7405].csv",  locale = locale(encoding = "UTF-8"))
+
+ACE_FIRST_99 <- fix_cols(ACE_FIRST_99)
+SGLT2_FIRST_99 <- fix_cols(SGLT2_FIRST_99)
+ARB_FIRST_99 <- fix_cols(ARB_FIRST_99)
+```
+
+```{r}
+# ============================================================================
+# CHUNK 13: Verify Drug Dispensing Data (Already Loaded)
+# ============================================================================
+
+cat("\n=== CHUNK 13: Verifying Drug Dispensing Data ===\n\n")
+
+library(dplyr)
+
+# ============================================================================
+# STEP 1: Verify Data Availability
+# ============================================================================
+
+cat("=== Checking Drug Data Availability ===\n\n")
+
+data_summary <- data.frame(
+  Drug = c("Prednisone", "Hydroxychloroquine", "ACE Inhibitors", "ARBs", "SGLT2 Inhibitors"),
+  Dataset = c("PREDNISONE_FIRST_99", "HYDROXY_FIRST_99", "ACE_FIRST_99", "ARB_FIRST_99", "SGLT2_FIRST_99"),
+  Loaded = c(
+    exists("PREDNISONE_FIRST_99"),
+    exists("HYDROXY_FIRST_99"),
+    exists("ACE_FIRST_99"),
+    exists("ARB_FIRST_99"),
+    exists("SGLT2_FIRST_99")
+  ),
+  N_Records = c(
+    ifelse(exists("PREDNISONE_FIRST_99"), nrow(PREDNISONE_FIRST_99), 0),
+    ifelse(exists("HYDROXY_FIRST_99"), nrow(HYDROXY_FIRST_99), 0),
+    ifelse(exists("ACE_FIRST_99"), nrow(ACE_FIRST_99), 0),
+    ifelse(exists("ARB_FIRST_99"), nrow(ARB_FIRST_99), 0),
+    ifelse(exists("SGLT2_FIRST_99"), nrow(SGLT2_FIRST_99), 0)
+  ),
+  stringsAsFactors = FALSE
+)
+
+print(data_summary)
+cat("\n")
+
+# Check which drugs are ready for analysis
+ready_drugs <- data_summary$Drug[data_summary$Loaded]
+missing_drugs <- data_summary$Drug[!data_summary$Loaded]
+
+if (length(ready_drugs) > 0) {
+  cat("✓ Drugs ready for analysis:\n")
+  for (drug in ready_drugs) {
+    cat("  -", drug, "\n")
+  }
+  cat("\n")
+}
+
+if (length(missing_drugs) > 0) {
+  cat("⚠ Missing drug data:\n")
+  for (drug in missing_drugs) {
+    cat("  -", drug, "\n")
+  }
+  cat("\n")
+}
+
+# ============================================================================
+# STEP 2: Quick Column Name Check
+# ============================================================================
+
+cat("=== Checking Key Column Names ===\n\n")
+
+# Function to check if expected columns exist
+check_columns <- function(dataset_name, date_col, ddd_col) {
+  if (exists(dataset_name)) {
+    dataset <- get(dataset_name)
+    has_date <- date_col %in% names(dataset)
+    has_ddd <- ddd_col %in% names(dataset)
+    
+    cat(dataset_name, ":\n")
+    cat("  Date column (", date_col, "):", ifelse(has_date, "✓", "✗"), "\n")
+    cat("  DDD column (", ddd_col, "):", ifelse(has_ddd, "✓", "✗"), "\n")
+    
+    if (!has_date || !has_ddd) {
+      cat("  Available columns:", paste(names(dataset), collapse = ", "), "\n")
+    }
+    cat("\n")
+    
+    return(has_date && has_ddd)
+  } else {
+    return(FALSE)
+  }
+}
+
+# Check each drug dataset
+prednisone_ok <- check_columns("PREDNISONE_FIRST_99", 
+                               "prednisone_dispensed_date", 
+                               "prednisone_dispensed_quantity_ddd")
+
+hydroxy_ok <- check_columns("HYDROXY_FIRST_99", 
+                            "hydroxychloroquine_dispensed_date", 
+                            "hydroxychloroquine_dispensed_quantity_ddd")
+
+ace_ok <- check_columns("ACE_FIRST_99", 
+                        "ace_dispensed_date", 
+                        "ace_dispensed_quantity_ddd")
+
+arb_ok <- check_columns("ARB_FIRST_99", 
+                        "arb_dispensed_date", 
+                        "arb_dispensed_quantity_ddd")
+
+sglt2_ok <- check_columns("SGLT2_FIRST_99", 
+                          "sglt2_dispensed_date", 
+                          "sglt2_dispensed_quantity_ddd")
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+cat(rep("=", 80), "\n", sep = "")
+cat("✓ CHUNK 13 COMPLETE!\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+all_ok <- prednisone_ok && hydroxy_ok && ace_ok && arb_ok && sglt2_ok
+
+if (all_ok) {
+  cat("✓ All drug datasets verified and ready for analysis\n")
+  cat("✓ Proceed to Chunk 14 for time-varying drug analysis\n\n")
+} else {
+  cat("⚠ Some datasets have missing or incorrect column names\n")
+  cat("⚠ Review column names above before proceeding to Chunk 14\n\n")
+}
+```
+
